@@ -38,6 +38,34 @@ export const KURSE = [
   { kuerzel: 'sf3', lehrer: 'eik', fach: 'Seminarfach',  niveau: '',   farbe: 'grau' },
 ];
 
+/** Jaspers Klasse - fuer die Frage, ob ein Termin ihn ueberhaupt betrifft. */
+export const MEINE_KLASSE = '12';
+
+/**
+ * Termine, die grundsaetzlich nicht interessieren (Lehrer-Veranstaltungen).
+ * Zusaetzlich fliegt jeder Termin raus, der viele Klassen auflistet,
+ * aber nicht seine - siehe terminBetrifftMich().
+ */
+export const TERMIN_AUSBLENDEN = [/fachdienst/i, /dienstbesprechung/i, /konferenz/i];
+
+/** Betrifft ein Termin (Name + Klassenliste) Jasper? */
+export function terminBetrifftMich(name, klassenListe) {
+  if (TERMIN_AUSBLENDEN.some((muster) => muster.test(name ?? ''))) return false;
+  const klassen = (klassenListe ?? '').split(',').map((k) => k.trim()).filter(Boolean);
+  // Viele Klassen aufgezaehlt, die eigene fehlt -> Veranstaltung anderer Jahrgaenge.
+  if (klassen.length >= 3 && !klassen.includes(MEINE_KLASSE)) return false;
+  return true;
+}
+
+/** Die Doppelstunden-Bloecke, aus denen ein Schultag besteht (fuer die Wochenansicht). */
+export const DOPPELBLOECKE = [
+  { name: '1./2.', von: '08:00', bis: '09:25' },
+  { name: '3./4.', von: '09:50', bis: '11:15' },
+  { name: '5./6.', von: '11:30', bis: '12:55' },
+  { name: '7./8.', von: '14:05', bis: '15:30' },
+  { name: '9./10.', von: '15:45', bis: '17:10' },
+];
+
 /** Apple-Systemfarben, je ein Wert fuer hell und dunkel. */
 export const FARBEN = {
   rot:      { hell: '#FF3B30', dunkel: '#FF453A' },

@@ -3,7 +3,7 @@
 import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import 'dotenv/config';
 import { UntisRest, isoDatum, montagVon } from './untis-rest.mjs';
-import { findeKurs, stundenBezeichnung, wochentyp, KURSE } from '../public/shared/konfiguration.mjs';
+import { findeKurs, stundenBezeichnung, wochentyp, terminBetrifftMich, KURSE } from '../public/shared/konfiguration.mjs';
 import { verschluesseln, entschluesseln } from './krypto-node.mjs';
 
 // Der Klartext-Stand bleibt IMMER lokal - er dient nur als Vergleichsbasis.
@@ -31,7 +31,7 @@ function filtere(stunden) {
         farbe: kurs.farbe,
         block: stundenBezeichnung(s.von, s.bis),
       });
-    } else if (istTermin(s)) {
+    } else if (istTermin(s) && terminBetrifftMich(s.name || s.text, s.klasse)) {
       behalten.push({
         ...s,
         kurs: null,
@@ -109,6 +109,9 @@ function findeAenderungen(alt, neu) {
     if (gesehen.has(key)) continue;
     const [datum] = key.split('|');
     if (datum < isoDatum(new Date())) continue; // Vergangenes ignorieren
+    // Verschwundene Termine sind meist Datenrauschen (oder unser eigener
+    // Filter) - ein abgesagter Termin kaeme als CANCELLED, nicht als Luecke.
+    if (key.endsWith('|TERMIN')) continue;
     aenderungen.push({ art: 'gestrichen', datum, block: s.block, kurs: s.kurs ?? s.fachName, text: `${s.fachName} steht nicht mehr im Plan` });
   }
 

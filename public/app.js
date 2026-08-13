@@ -1,4 +1,4 @@
-import { wochentyp, stundenBezeichnung, VAPID_OEFFENTLICH, DATEN_URL } from './shared/konfiguration.mjs?v=5';
+import { wochentyp, stundenBezeichnung, DOPPELBLOECKE, VAPID_OEFFENTLICH, DATEN_URL } from './shared/konfiguration.mjs?v=6';
 import {
   schluesselAusCode,
   entschluesseln,
@@ -7,10 +7,10 @@ import {
   schluesselLaden,
   schluesselVergessen,
   b64,
-} from './shared/krypto.mjs?v=5';
+} from './shared/krypto.mjs?v=6';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 5;
+const APP_VERSION = 6;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -443,9 +443,14 @@ function banner(aenderungen) {
 
 // ----------------------------------------------------------- Wochenansicht
 
+/** In welchen Doppelblock faellt eine Stunde? (Index in DOPPELBLOECKE) */
+const blockIndex = (s) =>
+  DOPPELBLOECKE.findIndex((b) => s.von >= b.von && s.von < b.bis);
+
 function zeichneWoche() {
   const inhalt = $('inhalt');
   inhalt.textContent = '';
+  inhalt.classList.add('woche-modus');
 
   const offen = (zustand.plan?.aenderungen ?? []).filter((a) => !zustand.gelesen.has(kennung(a)));
   if (offen.length) inhalt.append(banner(offen));
@@ -460,54 +465,76 @@ function zeichneWoche() {
     return;
   }
 
-  // Nur Blöcke zeigen, in denen überhaupt etwas stattfindet.
-  const bloecke = [];
+  // Kursstunden kommen ins Raster, Termine als eigene Zeile darunter -
+  // sonst verschieben ihre krummen Zeiten die Blöcke aller anderen Tage.
+  const kursstundenVon = (tag) => tag.stunden.filter((s) => s.kurs);
+  const termineVon = (tag) => tag.stunden.filter((s) => !s.kurs);
+
+  // Nur Blöcke zeigen, in denen diese Woche irgendetwas stattfindet.
+  const benutzt = new Set();
   for (const tag of woche.tage) {
-    for (const s of tag.stunden) {
-      const key = `${s.von}|${s.bis}`;
-      if (!bloecke.some((b) => b.key === key)) {
-        bloecke.push({ key, von: s.von, bis: s.bis, name: s.block || stundenBezeichnung(s.von, s.bis) });
-      }
+    for (const s of kursstundenVon(tag)) {
+      const i = blockIndex(s);
+      if (i >= 0) benutzt.add(i);
     }
   }
-  bloecke.sort((a, b) => a.von.localeCompare(b.von));
+  const zeilen = DOPPELBLOECKE.map((b, i) => ({ ...b, index: i })).filter((b) => benutzt.has(b.index));
 
   const raster = document.createElement('div');
   raster.className = 'raster';
-  raster.append(document.createElement('div'));
+  // Kopfzeile schmal, alle Blockzeilen teilen sich die restliche Höhe.
+  raster.style.gridTemplateRows = `auto repeat(${zeilen.length}, 1fr)`;
 
   const heute = iso(new Date());
+  const jetzt = new Date();
+  const jetztMin = jetzt.getHours() * 60 + jetzt.getMinutes();
+
+  // Ecke + Tagesköpfe (Tipp auf einen Tag öffnet dessen Tagesansicht)
+  raster.append(document.createElement('div'));
   for (const tag of woche.tage) {
-    const kopf = document.createElement('div');
+    const kopf = document.createElement('button');
+    kopf.type = 'button';
     kopf.className = 'raster-kopf';
     if (tag.datum === heute) kopf.classList.add('raster-heute');
-    kopf.textContent = TAGE_KURZ[alsDatum(tag.datum).getDay()];
+    const d = alsDatum(tag.datum);
+    kopf.innerHTML = `<span class="rk-tag">${TAGE_KURZ[d.getDay()]}</span><span class="rk-datum">${d.getDate()}.</span>`;
+    kopf.addEventListener('click', () => {
+      zustand.gewaehlt = tag.datum;
+      setzeAnsicht('tag');
+    });
     raster.append(kopf);
   }
 
-  for (const block of bloecke) {
+  for (const zeile of zeilen) {
     const zeit = document.createElement('div');
     zeit.className = 'raster-zeit';
-    zeit.textContent = block.name;
+    zeit.innerHTML = `<span class="rz-block">${zeile.name}</span><span class="rz-uhr">${zeile.von}</span>`;
     raster.append(zeit);
 
     for (const tag of woche.tage) {
-      const s = tag.stunden.find((x) => x.von === block.von && x.bis === block.bis);
-      const zelle = document.createElement('div');
+      const s = kursstundenVon(tag).find((x) => blockIndex(x) === zeile.index);
+      const zelle = document.createElement(s ? 'button' : 'div');
+      zelle.className = 'zelle';
+      if (tag.datum === heute) zelle.classList.add('heute-spalte');
       if (!s) {
-        zelle.className = 'zelle frei';
+        zelle.classList.add('frei');
         raster.append(zelle);
         continue;
       }
-      zelle.className = 'zelle';
+      if (s) zelle.type = 'button';
       zelle.style.setProperty('--fach-farbe', farbeVon(s.farbe));
       if (istEntfall(s)) zelle.classList.add('z-entfall');
       else if (istGeaendert(s)) zelle.classList.add('z-geaendert');
 
+      // Läuft diese Stunde gerade? Dann bekommt sie den Rahmen.
+      if (tag.datum === heute && !istEntfall(s) && jetztMin >= minuten(s.von) && jetztMin < minuten(s.bis)) {
+        zelle.classList.add('z-jetzt');
+      }
+
       const eigenes = hatEigenes(s);
       zelle.innerHTML =
-        `<span class="z-fach">${s.kurs ?? '•'}</span>` +
-        (s.raum ? `<span class="z-raum">${s.raum}</span>` : '') +
+        `<span class="z-fach">${s.fachName || s.kurs}</span>` +
+        `<span class="z-detail">${[s.raum, s.lehrer].filter(Boolean).join(' · ')}</span>` +
         (hatLehrerAufgabe(s) || eigenes.aufgabe || eigenes.notiz ? '<span class="z-punkt"></span>' : '');
       zelle.addEventListener('click', () => oeffneStunde(s));
       raster.append(zelle);
@@ -516,10 +543,22 @@ function zeichneWoche() {
 
   inhalt.append(raster);
 
-  const fuss = document.createElement('p');
-  fuss.className = 'blatt-fuss';
-  fuss.textContent = 'Tippe auf eine Stunde, um sie zu öffnen.';
-  inhalt.append(fuss);
+  // Termine der Woche als kompakte Chips - Details per Tipp.
+  const termine = woche.tage.flatMap((tag) => termineVon(tag));
+  if (termine.length) {
+    const leiste = document.createElement('div');
+    leiste.className = 'termin-leiste';
+    for (const termin of termine) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'termin-chip';
+      const d = alsDatum(termin.datum);
+      chip.textContent = `${TAGE_KURZ[d.getDay()]} · ${termin.fachName}`;
+      chip.addEventListener('click', () => oeffneStunde(termin));
+      leiste.append(chip);
+    }
+    inhalt.append(leiste);
+  }
 }
 
 // ------------------------------------------------------- Geöffnete Stunde
@@ -685,6 +724,7 @@ function zeichnen() {
   if (zustand.ansicht === 'woche') {
     zeichneWoche();
   } else {
+    $('inhalt').classList.remove('woche-modus');
     zeichneTagesleiste();
     zeichneTag();
   }

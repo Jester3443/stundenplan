@@ -5,6 +5,9 @@ on:
     # Alle 15 Minuten an Schultagen. GitHub rechnet in UTC:
     # 4-16 UTC deckt 6-18 Uhr deutscher Zeit in Sommer UND Winter ab.
     - cron: '*/15 4-16 * * 1-5'
+    # Abendvorschau: 19 UTC = 21:00 Sommerzeit / 20:00 Winterzeit,
+    # sonntags bis donnerstags (fuer die Schultage Montag bis Freitag).
+    - cron: '0 19 * * 0-4'
   workflow_dispatch: # erlaubt den Start von Hand
 
 # Zwei gleichzeitige Laeufe wuerden sich gegenseitig ueberschreiben.
@@ -52,6 +55,17 @@ jobs:
           PUSH_SUBSCRIPTION: ${{ secrets.PUSH_SUBSCRIPTION }}
           KNAPP: '1'
         run: npm run push
+
+      - name: Abendvorschau fuer morgen
+        # Laeuft nur beim Abend-Zeitplan, nicht alle 15 Minuten.
+        if: github.event.schedule == '0 19 * * 0-4'
+        env:
+          VAPID_PUBLIC: ${{ secrets.VAPID_PUBLIC }}
+          VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
+          VAPID_KONTAKT: https://stundenplan-jasper.web.app
+          PUSH_SUBSCRIPTION: ${{ secrets.PUSH_SUBSCRIPTION }}
+          KNAPP: '1'
+        run: npm run abend
 
       - name: Verschluesselte Daten veroeffentlichen
         run: |
