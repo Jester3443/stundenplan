@@ -19,7 +19,7 @@ export const VAPID_OEFFENTLICH =
  * Sobald die Cloud-Automatik steht, kommt hier die GitHub-Adresse rein -
  * dann braucht die Aktualisierung keinen PC und keinen Neu-Deploy mehr.
  */
-export const DATEN_URL = '';
+export const DATEN_URL = 'https://raw.githubusercontent.com/Jester3443/stundenplan/data/plan.enc.json';
 
 /**
  * Jaspers acht Kurse.
