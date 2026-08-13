@@ -1,15 +1,15 @@
-// Service Worker: haelt die App offline verfuegbar.
-// Programmdateien kommen aus dem Cache, der Plan wird immer zuerst frisch
-// versucht - damit sind Aenderungen sofort da, aber ohne Netz zeigt die App
-// trotzdem den letzten Stand.
-const CACHE = 'stundenplan-v1';
+// Service Worker: haelt die App offline verfuegbar und sorgt dafuer,
+// dass Updates beim naechsten Oeffnen sofort uebernommen werden.
+// WICHTIG: Bei jedem App-Update die Versionsnummer hier UND die ?v=-Anhaenge
+// in index.html/app.js gemeinsam hochzaehlen.
+const CACHE = 'stundenplan-v4';
 const HUELLE = [
   './',
   './index.html',
-  './styles.css',
-  './app.js',
-  './shared/konfiguration.mjs',
-  './shared/krypto.mjs',
+  './styles.css?v=4',
+  './app.js?v=4',
+  './shared/konfiguration.mjs?v=4',
+  './shared/krypto.mjs?v=4',
   './manifest.webmanifest',
   './icons/icon-180.png',
   './icons/icon-192.png',
@@ -63,27 +63,40 @@ self.addEventListener('notificationclick', (e) => {
   );
 });
 
+// ---------------------------------------------------------------- Abrufe
+
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
-  if (url.origin !== self.location.origin) return;
+
+  // Die Plandaten kommen auch von GitHub - alles andere Fremde geht am
+  // Cache vorbei direkt ins Netz.
+  const eigene = url.origin === self.location.origin;
+  const daten = url.hostname === 'raw.githubusercontent.com';
+  if (!eigene && !daten) return;
 
   // Immer erst das Netz fragen, den Cache als Rueckfallebene fuellen.
-  // Cache-First waere schneller, wuerde aber nach einem Update wochenlang
-  // die alte App ausliefern - das ist den Bruchteil einer Sekunde nicht wert.
+  // Cache-First waere schneller, wuerde aber nach einem Update die alte App
+  // ausliefern - das ist den Bruchteil einer Sekunde nicht wert.
+  // Der ?t=...-Anhang dient nur dem Frischhalten - im Cache soll je Datei
+  // genau EIN Eintrag liegen, sonst waechst er mit jedem Abruf.
+  const ablageSchluessel = url.searchParams.has('t') ? url.origin + url.pathname : e.request;
+
   e.respondWith(
     fetch(e.request)
       .then((antwort) => {
         if (antwort.ok) {
           const kopie = antwort.clone();
-          caches.open(CACHE).then((c) => c.put(e.request, kopie));
+          caches.open(CACHE).then((c) => c.put(ablageSchluessel, kopie));
         }
         return antwort;
       })
       .catch(() =>
-        caches.match(e.request).then((treffer) => {
+        // ignoreSearch: der ?t=...-Anhang beim Aktualisieren und die
+        // ?v=-Versionen sollen den Offline-Treffer nicht verhindern.
+        caches.match(e.request, { ignoreSearch: true }).then((treffer) => {
           if (treffer) return treffer;
-          if (url.pathname.endsWith('plan.json')) {
+          if (url.pathname.endsWith('.json')) {
             return new Response('{}', { headers: { 'Content-Type': 'application/json' } });
           }
           return new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });

@@ -1,61 +1,38 @@
-# Was noch zu tun ist
+# Stand der Einrichtung
 
-Stand: App ist live auf **<https://stundenplan-jasper.web.app>**.
-Ziel: Aktualisierung alle 15 Minuten aus der Cloud – dein PC kann aus sein.
+## ✅ Fertig – läuft ohne deinen PC
 
-## Schon erledigt
+- App live: **<https://stundenplan-jasper.web.app>**
+- Cloud-Automatik: GitHub Actions ruft **alle 15 Minuten** (Mo–Fr, 6–18 Uhr)
+  den Plan ab, verschlüsselt ihn und veröffentlicht ihn. Kostenlos, unbegrenzt.
+  Repository: <https://github.com/Jester3443/stundenplan>
+- Zugangsdaten liegen im verschlüsselten Secret-Speicher von GitHub
+- Die App holt die Daten direkt aus der Cloud – dein PC kann aus sein
+- Die alte PC-Aufgabe („Stundenplan Sync") ist gelöscht
+- Keine E-Mail-Adresse im Einsatz
 
-- ✅ Firebase-Projekt `stundenplan-jasper`, App veröffentlicht
-- ✅ Cloud-Ablauf fertig geschrieben (`.github/workflows/sync.yml`):
-  alle 15 Min an Schultagen (Mo–Fr, 6–18 Uhr), Plan holen → verschlüsseln →
-  veröffentlichen → bei Änderungen Push. Kostenlos, ohne Limit.
-- ✅ Keine E-Mail im Spiel: Als technischer Kontakt dient die App-Adresse selbst
-- ✅ GitHub-Werkzeug (`gh`) auf dem PC installiert
-- ✅ Übergangsweise aktualisiert dein PC noch selbst (Aufgabe „Stundenplan Sync",
-  alle 30 Min solange er an ist) – fliegt raus, sobald die Cloud läuft
+## 📱 Deine letzten zwei Schritte (am iPhone)
 
-## Deine drei Schritte
+1. **Installieren:** Safari → `stundenplan-jasper.web.app` → Teilen →
+   **Zum Home-Bildschirm** → Hinzufügen. Vom Home-Bildschirm öffnen,
+   Zugangscode eingeben (nur dieses eine Mal).
+2. **Push aktivieren:** Unten auf **Mitteilungen** tippen → erlauben →
+   **Anmeldung kopieren** → den Text an Claude geben (oder selbst am PC
+   ausführen: `gh secret set PUSH_SUBSCRIPTION --repo Jester3443/stundenplan`
+   und den Text einfügen).
 
-### 1. Zugangscode – nochmal, er ist nicht gespeichert worden
+Danach kommen Entfall, Raumwechsel und neue Lehrer-Hausaufgaben als
+Push-Nachricht aufs iPhone – egal ob App oder PC an sind.
 
-```
-notepad C:\Users\joffi\StundenplanApp\.env
-```
+## Nachschlagen
 
-Bei `APP_CODE=` deinen Code eintragen und **mit Strg+S speichern** (beim letzten
-Mal ist genau das schiefgegangen – die Zeile war leer). Fenster erst danach schließen.
-
-### 2. GitHub-Konto anlegen (einmalig, kostenlos, ~3 Minuten)
-
-1. <https://github.com/signup> im Browser öffnen
-2. **Private** E-Mail-Adresse verwenden (nicht die Firmen-Mail)
-3. Benutzername und Passwort frei wählen, Bestätigungsmail anklicken
-
-Das Konto kann nur du anlegen – alles danach übernehme ich.
-
-### 3. Mir einmal Zugriff geben
-
-Sag mir Bescheid, wenn das Konto steht. Dann starte ich `gh auth login` –
-es erscheint ein 8-stelliger Code, den du auf der angezeigten GitHub-Seite
-eingibst und bestätigst. Ab da richte ich alles Weitere selbst ein:
-Repository, Geheimnisse, Cloud-Ablauf, Umstellung der App, Abschalten der
-PC-Aufgabe.
-
-## Danach: iPhone (wie gehabt)
-
-1. **Safari** → `stundenplan-jasper.web.app` → Teilen → **Zum Home-Bildschirm**
-2. Vom Home-Bildschirm öffnen, Zugangscode eingeben
-3. Unten auf **Mitteilungen** tippen, erlauben, Text kopieren und mir geben –
-   ich hinterlege ihn als Geheimnis in der Cloud
-
-## Antworten auf deine Fragen
-
-**Kostet das was?** Nein. GitHub Actions ist für öffentliche Repositories
-unbegrenzt kostenlos, Firebase Hosting bleibt im Gratis-Tarif. Deine 2–10 €
-bleiben bei dir. „Öffentlich" heißt: Der *Programmcode* ist einsehbar –
-deine Zugangsdaten liegen im verschlüsselten Secret-Speicher, dein Stundenplan
-ist AES-verschlüsselt, und die Protokolle geben keine Inhalte aus.
-
-**Muss die App im Hintergrund laufen?** Nein. Die Push-Nachricht schickt Apple
-aufs iPhone, die App kann dabei komplett zu sein. Öffnest du sie, holt sie sich
-den frischen Stand von selbst.
+- **Läuft die Cloud?** <https://github.com/Jester3443/stundenplan/actions> –
+  grüne Häkchen = alles gut. Lauf von Hand starten: dort „Stundenplan abrufen"
+  → „Run workflow".
+- **Code ändern/neu veröffentlichen:** Änderungen committen und pushen; die
+  App-Oberfläche wird mit `firebase deploy --only hosting` veröffentlicht.
+- **Zugangscode ändern:** Neuen Wert in `.env` (Zeile `APP_CODE=`) UND als
+  GitHub-Secret `APP_CODE` setzen; auf dem iPhone einmal neu eingeben.
+- **Push-Anmeldung erneuern** (falls Mitteilungen irgendwann ausbleiben):
+  in der App auf „Mitteilungen" tippen und den neuen Text wieder als Secret
+  `PUSH_SUBSCRIPTION` hinterlegen.

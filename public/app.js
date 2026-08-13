@@ -1,4 +1,4 @@
-import { wochentyp, stundenBezeichnung, VAPID_OEFFENTLICH, DATEN_URL } from './shared/konfiguration.mjs';
+import { wochentyp, stundenBezeichnung, VAPID_OEFFENTLICH, DATEN_URL } from './shared/konfiguration.mjs?v=4';
 import {
   schluesselAusCode,
   entschluesseln,
@@ -7,7 +7,10 @@ import {
   schluesselLaden,
   schluesselVergessen,
   b64,
-} from './shared/krypto.mjs';
+} from './shared/krypto.mjs?v=4';
+
+/** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
+const APP_VERSION = 4;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -718,7 +721,7 @@ async function starten({ frisch = false } = {}) {
     zustand.notizen = await ladeNotizen();
     zustand.gewaehlt ??= startTag();
     if (!tagFinden(zustand.gewaehlt)) zustand.gewaehlt = startTag();
-    $('stand').textContent = zeitstempel(zustand.plan.aktualisiert);
+    $('stand').textContent = `${zeitstempel(zustand.plan.aktualisiert)} · v${APP_VERSION}`;
     zeichnen();
   } catch (error) {
     $('inhalt').textContent = '';
@@ -790,8 +793,20 @@ document.addEventListener('keydown', (e) => {
 });
 
 // Beim Zurückkehren zur App neu laden - das ist der "prüft beim Öffnen"-Teil.
+// Gleichzeitig nach einer neuen App-Version suchen.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && !fensterOffen()) starten({ frisch: true });
+  if (document.visibilityState !== 'visible') return;
+  navigator.serviceWorker?.getRegistration().then((reg) => reg?.update()).catch(() => {});
+  if (!fensterOffen()) starten({ frisch: true });
+});
+
+// Sobald eine neue Version uebernommen hat: einmal neu laden, damit alle
+// Teile (HTML, Skript, Styles) garantiert zusammenpassen.
+let einmalNeuGeladen = false;
+navigator.serviceWorker?.addEventListener('controllerchange', () => {
+  if (einmalNeuGeladen) return;
+  einmalNeuGeladen = true;
+  location.reload();
 });
 
 // Laufende Stunde und Jetzt-Linie aktuell halten
