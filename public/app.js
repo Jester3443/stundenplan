@@ -1,4 +1,4 @@
-import { wochentyp, stundenBezeichnung, VAPID_OEFFENTLICH, DATEN_URL } from './shared/konfiguration.mjs?v=4';
+import { wochentyp, stundenBezeichnung, VAPID_OEFFENTLICH, DATEN_URL } from './shared/konfiguration.mjs?v=5';
 import {
   schluesselAusCode,
   entschluesseln,
@@ -7,10 +7,10 @@ import {
   schluesselLaden,
   schluesselVergessen,
   b64,
-} from './shared/krypto.mjs?v=4';
+} from './shared/krypto.mjs?v=5';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 4;
+const APP_VERSION = 5;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];

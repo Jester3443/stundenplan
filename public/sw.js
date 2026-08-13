@@ -2,14 +2,14 @@
 // dass Updates beim naechsten Oeffnen sofort uebernommen werden.
 // WICHTIG: Bei jedem App-Update die Versionsnummer hier UND die ?v=-Anhaenge
 // in index.html/app.js gemeinsam hochzaehlen.
-const CACHE = 'stundenplan-v4';
+const CACHE = 'stundenplan-v5';
 const HUELLE = [
   './',
   './index.html',
-  './styles.css?v=4',
-  './app.js?v=4',
-  './shared/konfiguration.mjs?v=4',
-  './shared/krypto.mjs?v=4',
+  './styles.css?v=5',
+  './app.js?v=5',
+  './shared/konfiguration.mjs?v=5',
+  './shared/krypto.mjs?v=5',
   './manifest.webmanifest',
   './icons/icon-180.png',
   './icons/icon-192.png',

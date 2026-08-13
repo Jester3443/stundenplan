@@ -53,6 +53,11 @@
 
 * { box-sizing: border-box; }
 
+/* Das hidden-Attribut MUSS immer gewinnen - auch gegen display:flex/grid
+   der jeweiligen Klasse. Ohne diese Regel bleiben "versteckte" Fenster
+   sichtbar kleben (so geschehen beim Mitteilungs-Fenster auf dem iPhone). */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   padding: 0;
