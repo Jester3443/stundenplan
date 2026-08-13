@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>Stundenplan</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no"
+    />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Stundenplan" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icons/icon-180.png" />
+    <link rel="icon" href="icons/icon-180.png" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="kopf">
+        <div class="kopf-zeile">
+          <div class="kopf-text">
+            <p class="kopf-datum" id="kopfDatum">&nbsp;</p>
+            <h1 class="kopf-titel" id="kopfTitel">Stundenplan</h1>
+          </div>
+          <span class="woche-abzeichen" id="wocheAbzeichen">–</span>
+        </div>
+        <p class="kopf-info" id="kopfInfo"></p>
+
+        <div class="umschalter" role="tablist" aria-label="Ansicht wählen">
+          <button class="um-knopf aktiv" id="ansichtTag" type="button" role="tab" aria-selected="true">Tag</button>
+          <button class="um-knopf" id="ansichtWoche" type="button" role="tab" aria-selected="false">Woche</button>
+        </div>
+
+        <nav class="tagesleiste" id="tagesleiste" aria-label="Wochentag wählen"></nav>
+      </header>
+
+      <main class="inhalt" id="inhalt">
+        <p class="laden">Lade Stundenplan …</p>
+      </main>
+
+      <footer class="fuss">
+        <button class="fuss-knopf" id="aktualisieren" type="button">Aktualisieren</button>
+        <span class="fuss-stand" id="stand"></span>
+        <button class="fuss-knopf" id="mitteilungen" type="button" hidden>Mitteilungen</button>
+      </footer>
+    </div>
+
+    <!-- Stunde geöffnet: Details, Hausaufgaben, eigene Notizen -->
+    <div class="modal-hintergrund" id="modalHintergrund" hidden></div>
+    <div class="modal" id="stundeModal" hidden role="dialog" aria-modal="true" aria-labelledby="modalFach">
+      <div class="modal-karte">
+        <button class="modal-schliessen" id="modalSchliessen" type="button" aria-label="Schließen">✕</button>
+
+        <div class="modal-kopf">
+          <span class="modal-block" id="modalBlock"></span>
+          <h2 class="modal-fach" id="modalFach">Fach</h2>
+          <p class="modal-zeile" id="modalZeile"></p>
+          <span class="marke" id="modalMarke" hidden></span>
+        </div>
+
+        <div class="modal-koerper">
+          <div id="modalAufgaben"></div>
+
+          <label class="notiz-label" for="notizAufgabe">Meine Hausaufgabe</label>
+          <textarea class="notiz-feld" id="notizAufgabe" rows="3" placeholder="Was ist bis zur nächsten Stunde zu tun?"></textarea>
+
+          <label class="notiz-label" for="notizText">Notiz</label>
+          <textarea class="notiz-feld" id="notizText" rows="3" placeholder="Material, Klausurtermin, Erinnerung …"></textarea>
+        </div>
+
+        <div class="modal-fuss">
+          <button class="modal-knopf leise" id="notizLoeschen" type="button">Löschen</button>
+          <button class="modal-knopf voll" id="notizSichern" type="button">Sichern</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Entsperren: nur beim ersten Start auf einem Gerät -->
+    <div class="sperre" id="sperre" hidden>
+      <img class="sperre-icon" src="icons/icon-192.png" alt="" width="72" height="72" />
+      <h1 class="sperre-titel">Stundenplan</h1>
+      <p class="sperre-text">
+        Gib deinen Zugangscode ein. Die Daten sind verschlüsselt und werden erst auf
+        diesem Gerät lesbar.
+      </p>
+      <form class="sperre-form" id="sperreForm">
+        <input
+          class="sperre-feld"
+          id="sperreCode"
+          type="password"
+          inputmode="text"
+          autocomplete="current-password"
+          placeholder="Zugangscode"
+          aria-label="Zugangscode"
+          required
+        />
+        <button class="sperre-knopf" id="sperreKnopf" type="submit">Entsperren</button>
+      </form>
+      <p class="sperre-fehler" id="sperreFehler" hidden>Code stimmt nicht.</p>
+      <p class="sperre-fuss">Du brauchst den Code nur dieses eine Mal.</p>
+    </div>
+
+    <!-- Push-Anmeldung -->
+    <div class="blatt" id="pushBlatt" hidden>
+      <div class="blatt-griff"></div>
+      <div class="blatt-kopf">
+        <h2>Mitteilungen</h2>
+        <button class="blatt-schliessen" id="pushSchliessen" type="button">Fertig</button>
+      </div>
+      <div class="blatt-inhalt">
+        <p class="notiz-zeit" id="pushStatus"></p>
+        <p class="push-hinweis" id="pushHinweis"></p>
+        <textarea class="notiz-feld" id="pushDaten" rows="5" readonly hidden></textarea>
+        <button class="sperre-knopf" id="pushKopieren" type="button" hidden>Anmeldung kopieren</button>
+      </div>
+    </div>
+    <div class="blatt-hintergrund" id="blattHintergrund" hidden></div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

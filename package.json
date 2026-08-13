@@ -1,0 +1,22 @@
+{
+  "name": "stundenplan-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Persoenlicher Stundenplan fuer die IGS Osterholz-Scharmbeck auf Basis von WebUntis",
+  "scripts": {
+    "start": "node scripts/sync.mjs 4 && node scripts/server.mjs",
+    "sync": "node scripts/sync.mjs 4",
+    "serve": "node scripts/server.mjs",
+    "icons": "node scripts/icons.mjs",
+    "push": "node scripts/push.mjs",
+    "vapid": "node scripts/vapid.mjs",
+    "test:login": "node scripts/test-login.mjs",
+    "dump": "node scripts/dump-my.mjs 6"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "web-push": "^3.6.7",
+    "webuntis": "^2.0.4"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "stundenplan",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["scripts/server.mjs"],
+      "port": 4173
+    }
+  ]
+}

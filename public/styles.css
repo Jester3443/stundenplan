@@ -1,0 +1,761 @@
+/* ------------------------------------------------------------------
+   Stundenplan - Oberflaeche im Stil von iOS.
+   Dunkel als Standard, hell wird automatisch unterstuetzt.
+   ------------------------------------------------------------------ */
+
+:root {
+  --fl-rot: #FF453A;
+  --fl-blau: #0A84FF;
+  --fl-tuerkis: #40CBE0;
+  --fl-gruen: #30D158;
+  --fl-violett: #BF5AF2;
+  --fl-orange: #FF9F0A;
+  --fl-braun: #AC8E68;
+  --fl-grau: #98989D;
+
+  --hintergrund: #000000;
+  --flaeche: #1C1C1E;
+  --flaeche-hoch: #2C2C2E;
+  --trennlinie: rgba(255, 255, 255, 0.09);
+  --text: #FFFFFF;
+  --text-leise: #98989D;
+  --text-sehr-leise: #636366;
+  --akzent: #0A84FF;
+  --kopf-glas: rgba(0, 0, 0, 0.72);
+
+  --radius: 14px;
+  --radius-gross: 20px;
+  --rand: max(16px, env(safe-area-inset-left));
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --fl-rot: #FF3B30;
+    --fl-blau: #007AFF;
+    --fl-tuerkis: #00A0B4;
+    --fl-gruen: #28A745;
+    --fl-violett: #AF52DE;
+    --fl-orange: #F08000;
+    --fl-braun: #A2845E;
+    --fl-grau: #8E8E93;
+
+    --hintergrund: #F2F2F7;
+    --flaeche: #FFFFFF;
+    --flaeche-hoch: #FFFFFF;
+    --trennlinie: rgba(0, 0, 0, 0.08);
+    --text: #000000;
+    --text-leise: #6C6C70;
+    --text-sehr-leise: #AEAEB2;
+    --akzent: #007AFF;
+    --kopf-glas: rgba(242, 242, 247, 0.78);
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--hintergrund);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: contain;
+}
+
+body {
+  min-height: 100dvh;
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+.app {
+  max-width: 640px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ----------------------------------------------------------- Kopfbereich */
+
+.kopf {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: calc(env(safe-area-inset-top) + 10px) var(--rand) 0;
+  background: var(--kopf-glas);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 0.5px solid var(--trennlinie);
+}
+
+.kopf-zeile {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.kopf-datum {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-leise);
+  letter-spacing: 0.01em;
+}
+
+.kopf-titel {
+  margin: 1px 0 0;
+  font-size: 34px;
+  line-height: 1.1;
+  font-weight: 700;
+  letter-spacing: -0.022em;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+}
+
+.woche-abzeichen {
+  flex: none;
+  margin-top: 5px;
+  padding: 6px 13px;
+  border-radius: 999px;
+  background: var(--flaeche-hoch);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.kopf-info {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: var(--text-leise);
+  min-height: 19px;
+}
+
+/* Umschalter Tag / Woche - segmentiert wie in iOS */
+
+.umschalter {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  margin-top: 12px;
+  padding: 2px;
+  background: var(--flaeche-hoch);
+  border-radius: 9px;
+}
+
+.um-knopf {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 6px 0;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.18s ease, box-shadow 0.18s ease;
+}
+.um-knopf.aktiv {
+  background: var(--hintergrund);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+@media (prefers-color-scheme: light) {
+  .um-knopf.aktiv { background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+}
+
+/* Wochentag-Leiste */
+
+.tagesleiste {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  padding: 12px 0 10px;
+}
+
+.tag-knopf {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-leise);
+  font: inherit;
+  padding: 6px 0 7px;
+  border-radius: 11px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.tag-knopf .kuerzel { font-size: 12px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
+.tag-knopf .zahl { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+
+.tag-knopf.aktiv { background: var(--akzent); color: #fff; }
+.tag-knopf.aktiv .kuerzel { color: rgba(255, 255, 255, 0.8); }
+.tag-knopf.heute:not(.aktiv) .zahl { color: var(--akzent); }
+.tag-knopf.leer .zahl { opacity: 0.35; }
+.tag-knopf .punkt {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--fl-orange);
+  margin-top: 1px;
+}
+.tag-knopf.aktiv .punkt { background: #fff; }
+.tag-knopf .punkt.unsichtbar { background: transparent; }
+
+/* ------------------------------------------------------------- Inhalt */
+
+.inhalt {
+  flex: 1;
+  padding: 14px var(--rand) 24px;
+}
+
+.laden { color: var(--text-leise); text-align: center; padding: 40px 0; }
+
+/* Hinweisbanner fuer Aenderungen */
+
+.banner {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  font: inherit;
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  background: color-mix(in srgb, var(--fl-orange) 18%, var(--flaeche));
+  color: var(--text);
+  cursor: pointer;
+}
+.banner-titel { font-weight: 650; font-size: 15px; display: flex; align-items: center; gap: 7px; }
+.banner-titel::before {
+  content: ''; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--fl-orange); flex: none;
+}
+.banner-liste { margin: 6px 0 0; padding: 0; list-style: none; font-size: 14px; color: var(--text-leise); }
+.banner-liste li { padding: 1px 0; }
+
+/* Stunden */
+
+.stunde {
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.stunde-zeit {
+  padding-top: 11px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.stunde-block { display: block; font-size: 13px; font-weight: 650; color: var(--text); }
+.stunde-uhr { display: block; font-size: 13px; color: var(--text-leise); margin-top: 1px; }
+.stunde-uhr.bis { color: var(--text-sehr-leise); }
+
+.karte {
+  position: relative;
+  background: var(--flaeche);
+  border-radius: var(--radius);
+  padding: 11px 14px 12px 16px;
+  overflow: hidden;
+}
+.karte::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: var(--fach-farbe, var(--fl-grau));
+}
+
+.karte-kopf { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+
+.fach {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  color: var(--fach-farbe, var(--text));
+}
+.niveau {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-sehr-leise);
+  flex: none;
+}
+
+.karte-zeile {
+  margin: 3px 0 0;
+  font-size: 14px;
+  color: var(--text-leise);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.karte-zeile .trenner { color: var(--text-sehr-leise); }
+.durchgestrichen { text-decoration: line-through; color: var(--text-sehr-leise); }
+
+.marke {
+  display: inline-block;
+  margin-top: 7px;
+  padding: 3px 8px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.005em;
+}
+.marke.entfall { background: color-mix(in srgb, var(--fl-rot) 22%, transparent); color: var(--fl-rot); }
+.marke.vertretung { background: color-mix(in srgb, var(--fl-orange) 22%, transparent); color: var(--fl-orange); }
+.marke.raum { background: color-mix(in srgb, var(--fl-blau) 22%, transparent); color: var(--fl-blau); }
+.marke.termin { background: color-mix(in srgb, var(--fl-violett) 22%, transparent); color: var(--fl-violett); }
+
+/* Entfallene Stunde */
+.stunde.entfaellt .karte { background: color-mix(in srgb, var(--fl-rot) 8%, var(--flaeche)); }
+.stunde.entfaellt .fach { color: var(--text-sehr-leise); text-decoration: line-through; }
+.stunde.entfaellt .karte::before { background: var(--fl-rot); opacity: 0.55; }
+
+/* Laufende Stunde */
+.stunde.jetzt .karte { box-shadow: 0 0 0 2px var(--fach-farbe, var(--akzent)); }
+.rest { font-size: 12px; font-weight: 650; color: var(--fach-farbe, var(--akzent)); }
+
+/* Pause / Freistunde */
+
+.pause {
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  gap: 12px;
+  margin: 2px 0 10px;
+  align-items: center;
+}
+.pause-text {
+  font-size: 13px;
+  color: var(--text-sehr-leise);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pause-text::before,
+.pause-text::after {
+  content: '';
+  height: 1px;
+  background: var(--trennlinie);
+  flex: 1;
+}
+.pause.lang .pause-text { color: var(--fl-orange); font-weight: 600; }
+
+/* Jetzt-Linie */
+.jetzt-linie {
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  gap: 12px;
+  align-items: center;
+  margin: 4px 0 10px;
+}
+.jetzt-uhr { text-align: right; font-size: 12px; font-weight: 700; color: var(--fl-rot); font-variant-numeric: tabular-nums; }
+.jetzt-strich { height: 2px; background: var(--fl-rot); border-radius: 2px; position: relative; }
+.jetzt-strich::before {
+  content: ''; position: absolute; left: -4px; top: -3px;
+  width: 8px; height: 8px; border-radius: 50%; background: var(--fl-rot);
+}
+
+/* Leerer Tag */
+.leer-tag {
+  text-align: center;
+  padding: 48px 20px;
+  color: var(--text-leise);
+}
+.leer-tag .gross { font-size: 22px; font-weight: 650; color: var(--text); margin-bottom: 6px; }
+
+/* ------------------------------------------------------------ Fussleiste */
+
+.fuss {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px var(--rand) calc(env(safe-area-inset-bottom) + 12px);
+  border-top: 0.5px solid var(--trennlinie);
+  background: var(--kopf-glas);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  position: sticky;
+  bottom: 0;
+}
+.fuss-knopf {
+  border: none;
+  background: transparent;
+  color: var(--akzent);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.fuss-knopf:active { opacity: 0.5; }
+.fuss-knopf[disabled] { color: var(--text-sehr-leise); cursor: default; }
+.fuss-stand { font-size: 12px; color: var(--text-sehr-leise); }
+
+/* -------------------------------------------------------- Wochenansicht */
+
+.blatt-hintergrund {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 40;
+  animation: einblenden 0.2s ease;
+}
+
+.blatt {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 50;
+  max-height: 92dvh;
+  background: var(--hintergrund);
+  border-radius: var(--radius-gross) var(--radius-gross) 0 0;
+  display: flex;
+  flex-direction: column;
+  animation: hochschieben 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.blatt-griff {
+  width: 36px; height: 5px; border-radius: 3px;
+  background: var(--text-sehr-leise);
+  margin: 8px auto 0;
+  opacity: 0.5;
+}
+.blatt-kopf {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px var(--rand) 8px;
+}
+.blatt-kopf h2 { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: -0.015em; }
+.blatt-schliessen {
+  border: none; background: transparent; color: var(--akzent);
+  font: inherit; font-size: 16px; font-weight: 600; cursor: pointer;
+}
+.blatt-inhalt { overflow-y: auto; padding: 4px var(--rand) 20px; -webkit-overflow-scrolling: touch; }
+
+@keyframes hochschieben { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes einblenden { from { opacity: 0; } to { opacity: 1; } }
+
+/* Wochenraster */
+
+.raster {
+  display: grid;
+  grid-template-columns: 34px repeat(5, 1fr);
+  gap: 4px;
+}
+.raster-kopf {
+  font-size: 11px; font-weight: 650; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--text-leise);
+  text-align: center; padding-bottom: 4px;
+}
+.raster-zeit {
+  font-size: 11px; color: var(--text-sehr-leise);
+  display: flex; align-items: center; justify-content: flex-end;
+  padding-right: 4px; font-variant-numeric: tabular-nums;
+}
+.zelle {
+  min-height: 46px;
+  border-radius: 9px;
+  background: var(--flaeche);
+  padding: 5px 4px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1px;
+  text-align: center;
+}
+.zelle.frei { background: transparent; }
+.zelle .z-fach { font-size: 12px; font-weight: 700; color: var(--fach-farbe); line-height: 1.1; }
+.zelle .z-raum { font-size: 10px; color: var(--text-sehr-leise); }
+.zelle.z-entfall { background: color-mix(in srgb, var(--fl-rot) 14%, var(--flaeche)); }
+.zelle.z-entfall .z-fach { text-decoration: line-through; color: var(--fl-rot); }
+.zelle.z-geaendert { box-shadow: inset 0 0 0 1.5px var(--fl-orange); }
+.raster-heute { box-shadow: inset 0 0 0 1.5px var(--akzent); border-radius: 9px; }
+
+.blatt-fuss { margin-top: 14px; font-size: 13px; color: var(--text-leise); text-align: center; }
+
+/* ------------------------------------------------- Hausaufgaben & Notizen */
+
+.notiz-zeit { margin: 0 0 14px; font-size: 14px; color: var(--text-leise); }
+
+.notiz-label {
+  display: block;
+  margin: 14px 0 6px;
+  font-size: 13px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-leise);
+}
+
+.notiz-feld {
+  width: 100%;
+  appearance: none;
+  border: none;
+  border-radius: 12px;
+  background: var(--flaeche);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  padding: 12px 14px;
+  resize: vertical;
+  outline: none;
+}
+.notiz-feld:focus { box-shadow: 0 0 0 2px var(--akzent); }
+
+.notiz-loeschen {
+  display: block;
+  width: 100%;
+  margin-top: 20px;
+  padding: 13px;
+  border: none;
+  border-radius: 12px;
+  background: var(--flaeche);
+  color: var(--fl-rot);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.notiz-loeschen:active { opacity: 0.6; }
+
+/* Die Karte selbst bleibt aufgeraeumt: nur ein Zeichen, dass es etwas gibt. */
+.karte { cursor: pointer; }
+
+.karte-zeichen {
+  position: absolute;
+  top: 12px;
+  right: 13px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-sehr-leise);
+}
+.karte-zeichen .punkt-aufgabe {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--fach-farbe);
+}
+.karte-zeichen .punkt-notiz {
+  width: 7px; height: 7px; border-radius: 50%;
+  border: 1.5px solid var(--text-sehr-leise);
+}
+
+/* Aufgaben-Anzeige im geoeffneten Fenster */
+.notiz-anzeige {
+  margin: 0 0 10px;
+  padding: 11px 13px;
+  border-radius: 11px;
+  background: var(--flaeche);
+  font-size: 15px;
+  color: var(--text);
+  line-height: 1.4;
+}
+.notiz-anzeige .notiz-kopf {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fach-farbe);
+  margin-bottom: 3px;
+}
+.notiz-anzeige .notiz-quelle {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-sehr-leise);
+}
+
+.zelle .z-punkt {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: var(--fach-farbe); margin-top: 2px;
+}
+
+.push-hinweis { margin: 0 0 16px; font-size: 15px; color: var(--text-leise); line-height: 1.45; }
+
+/* ------------------------------------------------- Geöffnete Stunde (Modal) */
+
+.modal-hintergrund {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: einblenden 0.18s ease;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(20px, env(safe-area-inset-top)) 18px max(20px, env(safe-area-inset-bottom));
+  pointer-events: none;
+}
+.modal[hidden] { display: none; }
+
+.modal-karte {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  max-height: 100%;
+  overflow-y: auto;
+  pointer-events: auto;
+  background: var(--flaeche-hoch);
+  border-radius: 22px;
+  padding: 22px 20px 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  /* Wirkt, als würde die angetippte Stunde aufgehen. */
+  animation: aufgehen 0.26s cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+@media (prefers-color-scheme: light) {
+  .modal-karte { background: #fff; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22); }
+}
+
+@keyframes aufgehen {
+  from { opacity: 0; transform: scale(0.9) translateY(12px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.modal-schliessen {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 50%;
+  background: var(--flaeche);
+  color: var(--text-leise);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.modal-schliessen:active { opacity: 0.6; }
+@media (prefers-color-scheme: light) {
+  .modal-schliessen { background: #EFEFF4; }
+}
+
+.modal-kopf { padding-right: 34px; margin-bottom: 18px; }
+
+.modal-block {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--fach-farbe) 20%, transparent);
+  color: var(--fach-farbe);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.modal-fach {
+  margin: 9px 0 0;
+  font-size: 29px;
+  line-height: 1.12;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--fach-farbe);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+}
+.modal-fach.entfaellt { color: var(--text-sehr-leise); text-decoration: line-through; }
+
+.modal-zeile { margin: 5px 0 0; font-size: 15px; color: var(--text-leise); }
+.modal-kopf .marke { margin-top: 10px; }
+
+.modal-koerper { display: block; }
+.modal-koerper .notiz-label:first-child { margin-top: 0; }
+
+.modal-fuss {
+  display: flex;
+  gap: 9px;
+  margin-top: 20px;
+}
+
+.modal-knopf {
+  flex: 1;
+  border: none;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  padding: 13px;
+  cursor: pointer;
+}
+.modal-knopf.voll { background: var(--akzent); color: #fff; flex: 2; }
+.modal-knopf.leise { background: var(--flaeche); color: var(--fl-rot); }
+.modal-knopf:active { opacity: 0.7; }
+@media (prefers-color-scheme: light) {
+  .modal-knopf.leise { background: #EFEFF4; }
+}
+
+.modal-karte .notiz-feld { background: var(--flaeche); }
+@media (prefers-color-scheme: light) {
+  .modal-karte .notiz-feld { background: #F2F2F7; }
+}
+
+/* ------------------------------------------------------------ Entsperren */
+
+.sperre {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--hintergrund);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px var(--rand) calc(env(safe-area-inset-bottom) + 32px);
+  text-align: center;
+}
+.sperre[hidden] { display: none; }
+
+.sperre-icon { border-radius: 17px; margin-bottom: 6px; }
+.sperre-titel { margin: 0; font-size: 27px; font-weight: 700; letter-spacing: -0.02em; }
+.sperre-text { margin: 0; max-width: 300px; font-size: 15px; color: var(--text-leise); }
+
+.sperre-form { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 300px; margin-top: 14px; }
+
+.sperre-feld {
+  appearance: none;
+  border: none;
+  border-radius: 12px;
+  background: var(--flaeche);
+  color: var(--text);
+  font: inherit;
+  font-size: 17px;
+  padding: 14px 16px;
+  text-align: center;
+  outline: none;
+}
+.sperre-feld:focus { box-shadow: 0 0 0 2px var(--akzent); }
+
+.sperre-knopf {
+  border: none;
+  border-radius: 12px;
+  background: var(--akzent);
+  color: #fff;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  padding: 14px 16px;
+  cursor: pointer;
+}
+.sperre-knopf:active { opacity: 0.75; }
+.sperre-knopf[disabled] { opacity: 0.5; cursor: default; }
+
+.sperre-fehler { margin: 2px 0 0; font-size: 14px; font-weight: 600; color: var(--fl-rot); }
+.sperre-fuss { margin: 6px 0 0; font-size: 13px; color: var(--text-sehr-leise); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
