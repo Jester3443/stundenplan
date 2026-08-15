@@ -6,11 +6,16 @@ import { KRYPTO } from '../public/shared/krypto.mjs';
 /**
  * Verschluesselt ein Objekt mit dem Zugangscode.
  * Ergebnis: { version, salz, iv, daten } - alles base64, direkt als JSON ablegbar.
+ *
+ * WICHTIG: salzB64 vom letzten Mal WIEDERVERWENDEN. Die App leitet aus
+ * Code+Salz einmalig einen Schluessel ab und speichert ihn - wechselt das
+ * Salz bei jeder Veroeffentlichung, wird der Nutzer jedes Mal ausgesperrt.
+ * Nur der IV muss (und darf) jedes Mal frisch sein.
  */
-export function verschluesseln(objekt, code) {
+export function verschluesseln(objekt, code, salzB64 = null) {
   if (!code || code.length < 4) throw new Error('Zugangscode fehlt oder ist zu kurz (mindestens 4 Zeichen).');
 
-  const salz = randomBytes(KRYPTO.salzLaenge);
+  const salz = salzB64 ? Buffer.from(salzB64, 'base64') : randomBytes(KRYPTO.salzLaenge);
   const iv = randomBytes(KRYPTO.ivLaenge);
   const schluessel = pbkdf2Sync(code, salz, KRYPTO.runden, KRYPTO.schluesselBits / 8, 'sha256');
 

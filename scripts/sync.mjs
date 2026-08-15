@@ -21,10 +21,17 @@ const istTermin = (s) => !s.fach && (s.typ === 'EVENT' || s.name || s.text);
 function filtere(stunden) {
   const behalten = [];
   for (const s of stunden) {
-    const kurs = findeKurs(s.fach, s.lehrer);
+    // Lehrer gestrichen, KEIN Ersatz eingetragen -> "eigenverantwortliches
+    // Arbeiten". In der Oberstufe wird nichts vertreten, das ist faktisch
+    // Entfall - und genau so soll es die App zeigen (Jaspers Vorgabe).
+    const ohneLehrkraft = !!s.lehrerErsetzt && !s.lehrer;
+
+    const kurs = findeKurs(s.fach, s.lehrer || s.lehrerErsetzt);
     if (kurs) {
       behalten.push({
         ...s,
+        status: ohneLehrkraft ? 'CANCELLED' : s.status,
+        eva: ohneLehrkraft || undefined,
         kurs: kurs.kuerzel,
         fachName: kurs.fach,
         niveau: kurs.niveau,
@@ -200,13 +207,16 @@ const neu = {
 // lokalen Dateien - dort wird der zuletzt veroeffentlichte Stand von der
 // eigenen Seite geholt und entschluesselt.
 let alt = null;
+let bisherigesSalz = null; // Salz der letzten Veroeffentlichung wiederverwenden!
 const BASIS_URL = (process.env.BASIS_URL ?? '').trim();
 
 if (BASIS_URL && CODE) {
   try {
     const antwort = await fetch(`${BASIS_URL.replace(/\/$/, '')}/data/plan.enc.json`, { cache: 'no-store' });
     if (antwort.ok) {
-      alt = entschluesseln(await antwort.json(), CODE);
+      const paket = await antwort.json();
+      bisherigesSalz = paket.salz ?? null;
+      alt = entschluesseln(paket, CODE);
       console.log('Vergleichsbasis: zuletzt veroeffentlichter Stand.');
     } else {
       console.log(`Vergleichsbasis: nicht abrufbar (HTTP ${antwort.status}) - dieser Lauf meldet keine Aenderungen.`);
@@ -226,6 +236,7 @@ if (!alt) {
     }
   }
 }
+bisherigesSalz ??= alt?._salz ?? null;
 
 neu.aenderungen = findeAenderungen(alt, neu);
 const frisch = neu.aenderungen.map((a) => ({ ...a, erkannt: neu.aktualisiert }));
@@ -237,9 +248,12 @@ await writeFile(BASIS, JSON.stringify(neu, null, 2), 'utf8');
 
 if (CODE) {
   // Verschluesselt veroeffentlichen. Der Klartext darf public/ nie erreichen.
-  await writeFile(ZIEL_KRYPT, JSON.stringify(verschluesseln(neu, CODE)), 'utf8');
+  const paket = verschluesseln(neu, CODE, bisherigesSalz);
+  neu._salz = paket.salz; // fuers naechste Mal merken (lokaler Lauf ohne BASIS_URL)
+  await writeFile(BASIS, JSON.stringify(neu, null, 2), 'utf8');
+  await writeFile(ZIEL_KRYPT, JSON.stringify(paket), 'utf8');
   await rm(ZIEL_KLAR, { force: true });
-  console.log(`\nVerschluesselt geschrieben: ${ZIEL_KRYPT}`);
+  console.log(`\nVerschluesselt geschrieben: ${ZIEL_KRYPT} (Salz ${bisherigesSalz ? 'wiederverwendet' : 'NEU'})`);
 } else {
   await writeFile(ZIEL_KLAR, JSON.stringify(neu, null, 2), 'utf8');
   await rm(ZIEL_KRYPT, { force: true });

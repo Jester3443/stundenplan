@@ -1,4 +1,4 @@
-import { wochentyp, stundenBezeichnung, DOPPELBLOECKE, VAPID_OEFFENTLICH, DATEN_URL } from './shared/konfiguration.mjs?v=6';
+import { wochentyp, stundenBezeichnung, DOPPELBLOECKE, VAPID_OEFFENTLICH, DATEN_URL } from './shared/konfiguration.mjs?v=7';
 import {
   schluesselAusCode,
   entschluesseln,
@@ -7,10 +7,10 @@ import {
   schluesselLaden,
   schluesselVergessen,
   b64,
-} from './shared/krypto.mjs?v=6';
+} from './shared/krypto.mjs?v=7';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 6;
+const APP_VERSION = 7;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -19,6 +19,15 @@ const MONATE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
 
 /** Lokales YYYY-MM-DD, nicht über toISOString (das rechnet nach UTC). */
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** ISO-Kalenderwoche (die Zaehlung, die auch die Schule benutzt). */
+function kalenderwoche(datum) {
+  const d = new Date(datum instanceof Date ? datum : `${datum}T12:00:00`);
+  d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7)); // Donnerstag der Woche
+  const jahresanfang = new Date(d.getFullYear(), 0, 4);
+  return 1 + Math.round(((d - jahresanfang) / 864e5 - 3 + ((jahresanfang.getDay() + 6) % 7)) / 7);
+}
 const alsDatum = (s) => new Date(`${s}T12:00:00`);
 const minuten = (uhr) => Number(uhr.slice(0, 2)) * 60 + Number(uhr.slice(3, 5));
 
@@ -82,7 +91,14 @@ function frageCode({ fehler = false } = {}) {
   });
 }
 
-async function ladePlan({ frisch = false } = {}) {
+/**
+ * leise = Hintergrund-Aktualisierung: Wenn der gespeicherte Schluessel nicht
+ * passt, wird NICHT der Sperrbildschirm gezeigt, sondern der alte Stand
+ * behalten (Rueckgabe null). Nach der Code-Eingabe soll man nie wieder
+ * rausgeworfen werden - das Salz bleibt serverseitig stabil, dies hier ist
+ * nur der doppelte Boden.
+ */
+async function ladePlan({ frisch = false, leise = false } = {}) {
   const roh = await holeRoh(frisch);
 
   if (!roh.verschluesselt) {
@@ -96,6 +112,7 @@ async function ladePlan({ frisch = false } = {}) {
 
   for (;;) {
     if (!schluessel) {
+      if (leise && zustand.plan) return null; // alten Stand behalten, nicht nerven
       const code = await frageCode({ fehler });
       schluessel = await schluesselAusCode(code, salz);
     }
@@ -224,7 +241,7 @@ function zeichneKopf() {
     $('kopfInfo').textContent = tagesInfo(tag);
   }
 
-  $('wocheAbzeichen').textContent = `${tag?.wochentyp ?? wochentyp(zustand.gewaehlt)}-Woche`;
+  $('wocheAbzeichen').textContent = `KW ${kalenderwoche(zustand.gewaehlt)} · ${tag?.wochentyp ?? wochentyp(zustand.gewaehlt)}`;
   $('wocheAbzeichen').hidden = wochenModus;
 
   $('ansichtTag').classList.toggle('aktiv', !wochenModus);
@@ -314,7 +331,7 @@ function stundenKarte(s, jetztMin, istHeute) {
   const marke = document.createElement('span');
   if (istEntfall(s)) {
     marke.className = 'marke entfall';
-    marke.textContent = 'Entfällt';
+    marke.textContent = s.eva ? 'Entfällt · ohne Lehrkraft' : 'Entfällt';
   } else if (istVertretung(s)) {
     marke.className = 'marke vertretung';
     marke.textContent = s.lehrerErsetzt ? 'Vertretung' : 'Geändert';
@@ -382,7 +399,11 @@ function zeichneTag() {
     const naechste = stunden[i + 1];
     if (naechste) {
       const luecke = minuten(naechste.von) - minuten(s.bis);
-      if (luecke >= 20) inhalt.append(pause(luecke));
+      // Jede echte Pause zeigen - auch die kurze 15-Minuten-Pause vor dem
+      // 3. Block. Nur 5-Minuten-Wechsel bleiben stumm, und zwischen zwei
+      // entfallenen Stunden gibt es nichts zu pausieren.
+      const sinnvoll = !(istEntfall(s) && istEntfall(naechste));
+      if (luecke >= 10 && sinnvoll) inhalt.append(pause(luecke));
     }
   });
 
@@ -586,7 +607,9 @@ function oeffneStunde(s) {
   const marke = $('modalMarke');
   if (istEntfall(s)) {
     marke.className = 'marke entfall';
-    marke.textContent = 'Diese Stunde entfällt';
+    marke.textContent = s.eva
+      ? 'Entfällt – Lehrkraft fehlt, nichts wird vertreten'
+      : 'Diese Stunde entfällt';
     marke.hidden = false;
   } else if (istVertretung(s)) {
     marke.className = 'marke vertretung';
@@ -752,20 +775,24 @@ function zeitstempel(wert) {
   return heute ? `Stand ${uhr} Uhr` : `Stand ${d.getDate()}.${d.getMonth() + 1}. ${uhr} Uhr`;
 }
 
-async function starten({ frisch = false } = {}) {
+async function starten({ frisch = false, leise = false } = {}) {
   const knopf = $('aktualisieren');
   knopf.disabled = true;
   knopf.textContent = 'Lade …';
   try {
-    zustand.plan = await ladePlan({ frisch });
+    const plan = await ladePlan({ frisch, leise });
+    if (plan) zustand.plan = plan; // null = leiser Abgleich fehlgeschlagen, alten Stand behalten
     zustand.notizen = await ladeNotizen();
     zustand.gewaehlt ??= startTag();
     if (!tagFinden(zustand.gewaehlt)) zustand.gewaehlt = startTag();
     $('stand').textContent = `${zeitstempel(zustand.plan.aktualisiert)} · v${APP_VERSION}`;
     zeichnen();
   } catch (error) {
-    $('inhalt').textContent = '';
-    $('inhalt').append(leerHinweis('Keine Daten', error.message));
+    // Ohne Netz und ohne alten Stand gibt es nichts zu zeigen - sonst still bleiben.
+    if (!zustand.plan) {
+      $('inhalt').textContent = '';
+      $('inhalt').append(leerHinweis('Keine Daten', error.message));
+    }
   } finally {
     knopf.disabled = false;
     knopf.textContent = 'Aktualisieren';
@@ -837,7 +864,7 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   navigator.serviceWorker?.getRegistration().then((reg) => reg?.update()).catch(() => {});
-  if (!fensterOffen()) starten({ frisch: true });
+  if (!fensterOffen()) starten({ frisch: true, leise: true });
 });
 
 // Sobald eine neue Version uebernommen hat: einmal neu laden, damit alle
