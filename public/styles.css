@@ -264,7 +264,13 @@ body {
 
 .karte {
   position: relative;
-  background: var(--flaeche);
+  /* Sanfter Schimmer der Fachfarbe statt flacher Flaeche */
+  background: linear-gradient(
+    150deg,
+    color-mix(in srgb, var(--fach-farbe, var(--fl-grau)) 14%, var(--flaeche)),
+    color-mix(in srgb, var(--fach-farbe, var(--fl-grau)) 5%, var(--flaeche))
+  );
+  border: 0.5px solid color-mix(in srgb, var(--fach-farbe, var(--fl-grau)) 28%, transparent);
   border-radius: var(--radius);
   padding: 11px 14px 12px 16px;
   overflow: hidden;
@@ -276,6 +282,88 @@ body {
   width: 4px;
   background: var(--fach-farbe, var(--fl-grau));
 }
+
+/* Vergangene Stunden treten zurueck */
+.stunde.vorbei { opacity: 0.5; }
+
+/* -------------------------------------------------- Hero: Jetzt / Gleich */
+
+.hero {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: var(--radius-gross);
+  padding: 17px 18px 16px;
+  margin-bottom: 16px;
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--fach-farbe) 26%, var(--flaeche)),
+    color-mix(in srgb, var(--fach-farbe) 8%, var(--flaeche))
+  );
+  border: 0.5px solid color-mix(in srgb, var(--fach-farbe) 42%, transparent);
+  box-shadow: 0 14px 38px color-mix(in srgb, var(--fach-farbe) 20%, transparent);
+}
+.hero:active { transform: scale(0.985); }
+
+.hero-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--fach-farbe);
+}
+.hero-label.live::before {
+  content: '';
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--fach-farbe);
+  animation: puls 2s ease-in-out infinite;
+}
+@keyframes puls { 50% { opacity: 0.35; } }
+
+.hero-fach {
+  margin: 7px 0 2px;
+  font-size: 30px;
+  line-height: 1.08;
+  font-weight: 750;
+  letter-spacing: -0.022em;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+}
+.hero-zeile { margin: 0; font-size: 15px; color: var(--text-leise); }
+
+.hero-balken {
+  margin-top: 14px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.13);
+  overflow: hidden;
+}
+.hero-balken > div {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--fach-farbe);
+  transition: width 30s linear;
+}
+@media (prefers-color-scheme: light) {
+  .hero-balken { background: rgba(0, 0, 0, 0.08); }
+}
+
+/* Sanftes Hereingleiten beim Tageswechsel */
+@keyframes karte-rein {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+.inhalt > * {
+  animation: karte-rein 0.28s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  animation-delay: calc(var(--i, 0) * 26ms);
+}
+.inhalt.ohne-animation > * { animation: none; }
 
 .karte-kopf { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 
@@ -320,7 +408,10 @@ body {
 .marke.termin { background: color-mix(in srgb, var(--fl-violett) 22%, transparent); color: var(--fl-violett); }
 
 /* Entfallene Stunde */
-.stunde.entfaellt .karte { background: color-mix(in srgb, var(--fl-rot) 8%, var(--flaeche)); }
+.stunde.entfaellt .karte {
+  background: color-mix(in srgb, var(--fl-rot) 8%, var(--flaeche));
+  border-color: color-mix(in srgb, var(--fl-rot) 26%, transparent);
+}
 .stunde.entfaellt .fach { color: var(--text-sehr-leise); text-decoration: line-through; }
 .stunde.entfaellt .karte::before { background: var(--fl-rot); opacity: 0.55; }
 
@@ -496,10 +587,14 @@ body {
 
 .zelle {
   appearance: none;
-  border: none;
   font: inherit;
   border-radius: 12px;
-  background: var(--flaeche);
+  background: linear-gradient(
+    150deg,
+    color-mix(in srgb, var(--fach-farbe, var(--fl-grau)) 13%, var(--flaeche)),
+    color-mix(in srgb, var(--fach-farbe, var(--fl-grau)) 5%, var(--flaeche))
+  );
+  border: 0.5px solid color-mix(in srgb, var(--fach-farbe, var(--fl-grau)) 26%, transparent);
   padding: 6px 4px;
   display: flex;
   flex-direction: column;
@@ -518,20 +613,29 @@ body {
   width: 3px;
   background: var(--fach-farbe, transparent);
 }
-.zelle.frei { background: transparent; cursor: default; }
+.zelle.frei { background: transparent; border-color: transparent; cursor: default; }
 .zelle.frei::before { display: none; }
 .zelle.heute-spalte:not(.frei) { background: var(--flaeche-hoch); }
 
 .zelle .z-fach {
-  font-size: 13px;
+  display: block;
+  width: 100%;
+  letter-spacing: -0.015em;
+  font-size: 11.5px;
   font-weight: 700;
   color: var(--fach-farbe);
   line-height: 1.15;
-  overflow-wrap: anywhere;
+  /* Umbruch an den weichen Trennstellen aus der App (zuverlaessiger als hyphens:auto) */
+  hyphens: manual;
+  -webkit-hyphens: manual;
+  overflow-wrap: break-word;
 }
 .zelle .z-detail { font-size: 10px; color: var(--text-leise); line-height: 1.2; }
 
-.zelle.z-entfall { background: color-mix(in srgb, var(--fl-rot) 12%, var(--flaeche)); }
+.zelle.z-entfall {
+  background: color-mix(in srgb, var(--fl-rot) 12%, var(--flaeche));
+  border-color: color-mix(in srgb, var(--fl-rot) 26%, transparent);
+}
 .zelle.z-entfall .z-fach { text-decoration: line-through; color: var(--text-sehr-leise); }
 .zelle.z-entfall .z-detail { text-decoration: line-through; color: var(--text-sehr-leise); }
 .zelle.z-entfall::before { background: var(--fl-rot); opacity: 0.55; }
@@ -707,9 +811,10 @@ body {
 }
 
 @keyframes aufgehen {
-  from { opacity: 0; transform: scale(0.9) translateY(12px); }
+  from { opacity: 0; transform: scale(0.92) translateY(14px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
+.modal-karte { animation-timing-function: cubic-bezier(0.34, 1.35, 0.64, 1); }
 
 .modal-schliessen {
   position: absolute;

@@ -1,4 +1,4 @@
-import { wochentyp, stundenBezeichnung, DOPPELBLOECKE, VAPID_OEFFENTLICH, DATEN_URL } from './shared/konfiguration.mjs?v=7';
+import { wochentyp, stundenBezeichnung, DOPPELBLOECKE, VAPID_OEFFENTLICH, DATEN_URL } from './shared/konfiguration.mjs?v=8';
 import {
   schluesselAusCode,
   entschluesseln,
@@ -7,10 +7,10 @@ import {
   schluesselLaden,
   schluesselVergessen,
   b64,
-} from './shared/krypto.mjs?v=7';
+} from './shared/krypto.mjs?v=8';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 7;
+const APP_VERSION = 8;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -360,6 +360,40 @@ function stundenKarte(s, jetztMin, istHeute) {
   return wrapper;
 }
 
+/**
+ * Die grosse Buehne oben: laufende Stunde (mit Fortschrittsbalken) oder die
+ * naechste, die heute noch kommt. Beantwortet sofort: Wo muss ich hin?
+ */
+function heroKarte(stunden, jetztMin) {
+  const kommend = stunden.filter((s) => !istEntfall(s));
+  const laufend = kommend.find((s) => jetztMin >= minuten(s.von) && jetztMin < minuten(s.bis));
+  const naechste = kommend.find((s) => minuten(s.von) > jetztMin);
+  const s = laufend ?? naechste;
+  if (!s) return null;
+
+  const el = document.createElement('button');
+  el.type = 'button';
+  el.className = 'hero';
+  el.style.setProperty('--fach-farbe', farbeVon(s.farbe));
+
+  let label;
+  let balken = '';
+  if (laufend) {
+    const gesamt = minuten(s.bis) - minuten(s.von);
+    const um = jetztMin - minuten(s.von);
+    label = `<span class="hero-label live">Jetzt · noch ${gesamt - um} Min</span>`;
+    balken = `<div class="hero-balken"><div style="width:${Math.round((um / gesamt) * 100)}%"></div></div>`;
+  } else {
+    const inMin = minuten(s.von) - jetztMin;
+    label = `<span class="hero-label">${inMin <= 90 ? `Gleich · in ${inMin} Min` : `Als Nächstes · ${s.von} Uhr`}</span>`;
+  }
+
+  const teile = [s.lehrerLang || s.lehrer, s.raum, `${s.block} Stunde`].filter(Boolean).join(' · ');
+  el.innerHTML = `${label}<h2 class="hero-fach">${s.fachName || s.kurs}</h2><p class="hero-zeile">${teile}</p>${balken}`;
+  el.addEventListener('click', () => oeffneStunde(s));
+  return el;
+}
+
 function zeichneTag() {
   const inhalt = $('inhalt');
   inhalt.textContent = '';
@@ -387,14 +421,21 @@ function zeichneTag() {
   }
 
   const stunden = [...tag.stunden].sort((a, b) => a.von.localeCompare(b.von));
-  let jetztGesetzt = false;
+
+  // Buehne oben - nur fuer heute, solange noch etwas ansteht.
+  const hero = istHeute ? heroKarte(stunden, jetztMin) : null;
+  if (hero) inhalt.append(hero);
+
+  let jetztGesetzt = !!hero; // mit Hero braucht es keine rote Jetzt-Linie
 
   stunden.forEach((s, i) => {
     if (istHeute && !jetztGesetzt && jetztMin < minuten(s.von)) {
       inhalt.append(jetztLinie(jetzt));
       jetztGesetzt = true;
     }
-    inhalt.append(stundenKarte(s, jetztMin, istHeute));
+    const karte = stundenKarte(s, jetztMin, istHeute);
+    if (istHeute && minuten(s.bis) <= jetztMin) karte.classList.add('vorbei');
+    inhalt.append(karte);
 
     const naechste = stunden[i + 1];
     if (naechste) {
@@ -467,6 +508,20 @@ function banner(aenderungen) {
 /** In welchen Doppelblock faellt eine Stunde? (Index in DOPPELBLOECKE) */
 const blockIndex = (s) =>
   DOPPELBLOECKE.findIndex((b) => s.von >= b.von && s.von < b.bis);
+
+/**
+ * Weiche Trennstellen fuer die schmalen Wochenzellen. Die automatische
+ * Silbentrennung ist je nach Geraet unzuverlaessig - diese Liste nicht.
+ */
+const TRENNUNGEN = {
+  Geschichte: 'Ge­schich­te',
+  Mathematik: 'Ma­the­ma­tik',
+  Seminarfach: 'Se­mi­nar­fach',
+  Erdkunde: 'Erd­kun­de',
+  Biologie: 'Bio­lo­gie',
+  Englisch: 'Eng­lisch',
+};
+const trenne = (name) => TRENNUNGEN[name] ?? name;
 
 function zeichneWoche() {
   const inhalt = $('inhalt');
@@ -554,7 +609,7 @@ function zeichneWoche() {
 
       const eigenes = hatEigenes(s);
       zelle.innerHTML =
-        `<span class="z-fach">${s.fachName || s.kurs}</span>` +
+        `<span class="z-fach">${trenne(s.fachName || s.kurs)}</span>` +
         `<span class="z-detail">${[s.raum, s.lehrer].filter(Boolean).join(' · ')}</span>` +
         (hatLehrerAufgabe(s) || eigenes.aufgabe || eigenes.notiz ? '<span class="z-punkt"></span>' : '');
       zelle.addEventListener('click', () => oeffneStunde(s));
@@ -744,6 +799,14 @@ function setzeAnsicht(ansicht) {
 
 function zeichnen() {
   zeichneKopf();
+
+  // Hereingleiten nur bei echtem Wechsel (Tag/Ansicht) - nicht bei den
+  // stillen 30-Sekunden-Aktualisierungen, sonst flackert alles staendig.
+  const schluesselJetzt = `${zustand.ansicht}|${zustand.gewaehlt}`;
+  const animieren = zeichnen.zuletzt !== schluesselJetzt;
+  zeichnen.zuletzt = schluesselJetzt;
+  $('inhalt').classList.toggle('ohne-animation', !animieren);
+
   if (zustand.ansicht === 'woche') {
     zeichneWoche();
   } else {
@@ -751,6 +814,9 @@ function zeichnen() {
     zeichneTagesleiste();
     zeichneTag();
   }
+
+  // Gestaffelte Verzoegerung fuer das Hereingleiten
+  [...$('inhalt').children].forEach((el, i) => el.style.setProperty('--i', i));
 }
 
 /** Einen Schultag bzw. eine Woche vor oder zurück. */
