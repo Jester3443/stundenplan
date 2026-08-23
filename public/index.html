@@ -15,37 +15,74 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="icons/icon-180.png" />
     <link rel="icon" href="icons/icon-180.png" />
-    <link rel="stylesheet" href="styles.css?v=8" />
+    <link rel="stylesheet" href="styles.css?v=9" />
   </head>
   <body>
     <div class="app">
-      <header class="kopf">
+      <header class="kopf" id="kopf">
         <div class="kopf-zeile">
           <div class="kopf-text">
             <p class="kopf-datum" id="kopfDatum">&nbsp;</p>
             <h1 class="kopf-titel" id="kopfTitel">Stundenplan</h1>
           </div>
-          <span class="woche-abzeichen" id="wocheAbzeichen">–</span>
+          <div class="kopf-rechts">
+            <span class="woche-abzeichen" id="wocheAbzeichen" hidden>–</span>
+            <button class="rund-knopf" id="aktualisieren" type="button" aria-label="Aktualisieren">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20.5 12a8.5 8.5 0 1 1-2.5-6" /><path d="M20.5 3.5V9H15" />
+              </svg>
+            </button>
+          </div>
         </div>
         <p class="kopf-info" id="kopfInfo"></p>
 
-        <div class="umschalter" role="tablist" aria-label="Ansicht wählen">
+        <div class="umschalter" id="umschalter" role="tablist" aria-label="Ansicht wählen" hidden>
           <button class="um-knopf aktiv" id="ansichtTag" type="button" role="tab" aria-selected="true">Tag</button>
           <button class="um-knopf" id="ansichtWoche" type="button" role="tab" aria-selected="false">Woche</button>
         </div>
 
-        <nav class="tagesleiste" id="tagesleiste" aria-label="Wochentag wählen"></nav>
+        <nav class="tagesleiste" id="tagesleiste" aria-label="Wochentag wählen" hidden></nav>
       </header>
 
       <main class="inhalt" id="inhalt">
         <p class="laden">Lade Stundenplan …</p>
       </main>
 
-      <footer class="fuss">
-        <button class="fuss-knopf" id="aktualisieren" type="button">Aktualisieren</button>
-        <span class="fuss-stand" id="stand"></span>
-        <button class="fuss-knopf" id="mitteilungen" type="button" hidden>Mitteilungen</button>
-      </footer>
+      <nav class="tableiste" id="tableiste" aria-label="Bereich wählen">
+        <button class="tab" data-tab="plan" type="button" aria-current="page">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+               stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3.4" y="5.2" width="17.2" height="15.4" rx="2.5" />
+            <path d="M3.4 10h17.2M8.2 2.8v4.6M15.8 2.8v4.6" />
+          </svg>
+          <span>Plan</span>
+        </button>
+        <button class="tab" data-tab="aufgaben" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9.5 6.5h11M9.5 12h11M9.5 17.5h11" />
+            <path d="M3.5 6.3l1.6 1.6 2.6-2.9M3.5 16.8l1.6 1.6 2.6-2.9" />
+          </svg>
+          <span>Aufgaben</span>
+          <i class="tab-punkt" id="tabPunktAufgaben" hidden></i>
+        </button>
+        <button class="tab" data-tab="noten" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 20V4M4 20h16" />
+            <path d="M8 20v-5.5M12.7 20V9.5M17.4 20v-8" />
+          </svg>
+          <span>Noten</span>
+        </button>
+        <button class="tab" data-tab="mehr" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+               stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="5.5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="18.5" cy="12" r="1.4" />
+          </svg>
+          <span>Mehr</span>
+        </button>
+      </nav>
     </div>
 
     <!-- Stunde geöffnet: Details, Hausaufgaben, eigene Notizen -->
@@ -74,6 +111,22 @@
         <div class="modal-fuss">
           <button class="modal-knopf leise" id="notizLoeschen" type="button">Löschen</button>
           <button class="modal-knopf voll" id="notizSichern" type="button">Sichern</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Allzweck-Eingabefenster für Noten, Klausuren und Fehlzeiten -->
+    <div class="modal" id="eingabeModal" hidden role="dialog" aria-modal="true" aria-labelledby="eingabeTitel">
+      <div class="modal-karte">
+        <button class="modal-schliessen" id="eingabeSchliessen" type="button" aria-label="Schließen">✕</button>
+        <div class="modal-kopf">
+          <h2 class="modal-fach" id="eingabeTitel">Eintrag</h2>
+          <p class="modal-zeile" id="eingabeUnterzeile"></p>
+        </div>
+        <form class="modal-koerper" id="eingabeFelder"></form>
+        <div class="modal-fuss">
+          <button class="modal-knopf leise" id="eingabeLoeschen" type="button">Löschen</button>
+          <button class="modal-knopf voll" id="eingabeSichern" type="button">Sichern</button>
         </div>
       </div>
     </div>
@@ -119,6 +172,6 @@
     </div>
     <div class="blatt-hintergrund" id="blattHintergrund" hidden></div>
 
-    <script type="module" src="app.js?v=8"></script>
+    <script type="module" src="app.js?v=9"></script>
   </body>
 </html>

@@ -216,7 +216,7 @@ body {
 
 .inhalt {
   flex: 1;
-  padding: 14px var(--rand) 24px;
+  padding: 14px var(--rand) 20px;
 }
 
 .laden { color: var(--text-leise); text-align: center; padding: 40px 0; }
@@ -329,6 +329,9 @@ body {
 
 .hero-fach {
   margin: 7px 0 2px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
   font-size: 30px;
   line-height: 1.08;
   font-weight: 750;
@@ -369,6 +372,9 @@ body {
 
 .fach {
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-size: 19px;
   font-weight: 650;
   letter-spacing: -0.015em;
@@ -850,6 +856,9 @@ body {
 
 .modal-fach {
   margin: 9px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
   font-size: 29px;
   line-height: 1.12;
   font-weight: 700;
@@ -950,3 +959,365 @@ body {
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* =================================================== Tab-Leiste und Kopf */
+
+.kopf-rechts { display: flex; align-items: center; gap: 8px; margin-top: 5px; flex: none; }
+
+.rund-knopf {
+  appearance: none;
+  border: none;
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: var(--flaeche-hoch);
+  color: var(--text-leise);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.rund-knopf:active { opacity: 0.6; }
+.rund-knopf.dreht svg { animation: drehen 0.9s linear infinite; }
+@keyframes drehen { to { transform: rotate(360deg); } }
+
+.tableiste {
+  position: sticky;
+  bottom: 0;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
+  padding: 7px var(--rand) calc(env(safe-area-inset-bottom) + 6px);
+  background: var(--kopf-glas);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-top: 0.5px solid var(--trennlinie);
+}
+
+.tab {
+  position: relative;
+  appearance: none;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: var(--text-sehr-leise);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 0 2px;
+  cursor: pointer;
+  transition: color 0.16s ease;
+}
+.tab svg { width: 23px; height: 23px; }
+.tab span { font-size: 10.5px; font-weight: 600; letter-spacing: 0.01em; }
+.tab.aktiv { color: var(--akzent); }
+.tab:active { opacity: 0.6; }
+
+.tab-punkt {
+  position: absolute;
+  top: 2px;
+  right: 50%;
+  transform: translateX(15px);
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--fl-orange);
+}
+
+/* ===================================================== Gemeinsame Teile */
+
+.abschnitt-kopf {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 22px 0 10px;
+}
+.abschnitt-kopf:first-child { margin-top: 4px; }
+.abschnitt-kopf h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.018em;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+}
+.abschnitt-knopf {
+  appearance: none; border: none; background: transparent;
+  font: inherit; font-size: 15px; font-weight: 600;
+  color: var(--akzent); cursor: pointer; padding: 0;
+}
+.abschnitt-knopf:active { opacity: 0.6; }
+
+.leer-box {
+  border-radius: var(--radius);
+  background: var(--flaeche);
+  padding: 20px 16px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-leise);
+  line-height: 1.45;
+}
+.leer-gross { font-size: 17px; font-weight: 650; color: var(--text); margin-bottom: 5px; }
+
+.tages-trenner {
+  margin: 16px 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-leise);
+}
+
+.bereich-fuss {
+  margin: 22px 0 4px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-sehr-leise);
+  text-align: center;
+}
+
+.auswahl-reihe { display: flex; gap: 6px; flex-wrap: wrap; }
+.auswahl-knopf {
+  appearance: none; border: none; font: inherit;
+  flex: 1; min-width: 90px;
+  padding: 11px 12px;
+  border-radius: 11px;
+  background: var(--flaeche);
+  color: var(--text);
+  font-size: 15px; font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.auswahl-knopf.aktiv { background: var(--akzent); color: #fff; }
+@media (prefers-color-scheme: light) { .auswahl-knopf { background: #F2F2F7; } }
+
+/* ============================================================= Aufgaben */
+
+.aufgabe {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  border-radius: var(--radius);
+  background: linear-gradient(
+    150deg,
+    color-mix(in srgb, var(--fach-farbe) 12%, var(--flaeche)),
+    color-mix(in srgb, var(--fach-farbe) 4%, var(--flaeche))
+  );
+  border: 0.5px solid color-mix(in srgb, var(--fach-farbe) 24%, transparent);
+}
+.aufgabe.erledigt { opacity: 0.45; }
+
+.haken {
+  appearance: none;
+  width: 24px; height: 24px;
+  margin-top: 1px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--fach-farbe) 55%, transparent);
+  background: transparent;
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  flex: none;
+}
+.haken svg { width: 13px; height: 13px; }
+.aufgabe.erledigt .haken { background: var(--fach-farbe); border-color: var(--fach-farbe); }
+
+.aufgabe-inhalt { cursor: pointer; min-width: 0; }
+.aufgabe-kopf { display: flex; align-items: center; gap: 6px; color: var(--fach-farbe); }
+.aufgabe-fach { font-size: 13px; font-weight: 700; letter-spacing: 0.01em; }
+.aufgabe-quelle {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-sehr-leise);
+  border: 1px solid var(--trennlinie);
+  border-radius: 5px; padding: 1px 5px;
+}
+.aufgabe-text { margin: 4px 0 0; font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
+.aufgabe.erledigt .aufgabe-text { text-decoration: line-through; }
+
+/* ============================================================ Klausuren */
+
+.klausur-liste { display: flex; flex-direction: column; gap: 8px; }
+
+.klausur-karte {
+  appearance: none; border: none; font: inherit; text-align: left;
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 13px;
+  align-items: center;
+  padding: 13px 15px;
+  border-radius: var(--radius);
+  background: linear-gradient(
+    150deg,
+    color-mix(in srgb, var(--fach-farbe) 15%, var(--flaeche)),
+    color-mix(in srgb, var(--fach-farbe) 5%, var(--flaeche))
+  );
+  border: 0.5px solid color-mix(in srgb, var(--fach-farbe) 26%, transparent);
+  color: var(--text);
+  cursor: pointer;
+}
+.klausur-karte.nah { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--fach-farbe) 60%, transparent); }
+.klausur-karte.vergangen { opacity: 0.45; }
+
+.klausur-tage {
+  font-size: 30px;
+  font-weight: 750;
+  line-height: 1;
+  text-align: center;
+  color: var(--fach-farbe);
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.klausur-fach { display: flex; align-items: center; gap: 7px; font-size: 16px; font-weight: 700; color: var(--fach-farbe); }
+.klausur-info { margin-top: 2px; font-size: 13px; color: var(--text-leise); }
+
+/* ================================================================ Noten */
+
+.noten-kopf { text-align: center; padding: 18px 0 22px; }
+.noten-zahl {
+  font-size: 54px;
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: -0.035em;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.noten-zahl.leer { color: var(--text-sehr-leise); }
+.noten-unter { margin-top: 7px; font-size: 14px; color: var(--text-leise); }
+
+.noten-karte {
+  border-radius: var(--radius);
+  background: var(--flaeche);
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.noten-zeile {
+  appearance: none; border: none; background: transparent; font: inherit;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  align-items: center;
+  gap: 11px;
+  padding: 13px 15px 11px;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.noten-symbol { color: var(--fach-farbe); display: flex; }
+.noten-name { font-size: 16px; font-weight: 650; display: flex; align-items: baseline; gap: 7px; }
+.noten-niveau { font-size: 11px; font-weight: 600; color: var(--text-sehr-leise); }
+.noten-wert {
+  font-size: 21px; font-weight: 750; color: var(--fach-farbe);
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+}
+
+.noten-balken {
+  height: 4px;
+  margin: 0 15px 12px;
+  border-radius: 2px;
+  background: var(--trennlinie);
+  overflow: hidden;
+}
+.noten-balken > div { height: 100%; border-radius: 2px; background: var(--fach-farbe); transition: width 0.4s ease; }
+
+.noten-details { display: none; padding: 0 15px 12px; }
+.noten-karte.offen .noten-details { display: block; }
+
+.note-eintrag {
+  appearance: none; border: none; background: transparent; font: inherit;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 0;
+  border-top: 0.5px solid var(--trennlinie);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.note-punkte {
+  font-size: 17px; font-weight: 700; color: var(--fach-farbe);
+  text-align: center; font-variant-numeric: tabular-nums;
+}
+.note-text { font-size: 14px; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.note-datum { font-size: 12px; color: var(--text-sehr-leise); }
+.note-note { font-size: 14px; font-weight: 650; color: var(--text-leise); }
+
+.note-hinzu {
+  appearance: none; border: none; font: inherit;
+  width: 100%;
+  margin-top: 8px;
+  padding: 9px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fach-farbe) 14%, transparent);
+  color: var(--fach-farbe);
+  font-size: 14px; font-weight: 650;
+  cursor: pointer;
+}
+.note-hinzu:active { opacity: 0.6; }
+
+/* =========================================================== Fehlzeiten */
+
+.zaehler-reihe { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.zaehler {
+  border-radius: var(--radius);
+  background: var(--flaeche);
+  padding: 15px 14px;
+  text-align: center;
+}
+.zaehler-zahl {
+  display: block;
+  font-size: 30px; font-weight: 750; line-height: 1;
+  letter-spacing: -0.03em; font-variant-numeric: tabular-nums;
+}
+.zaehler-text { display: block; margin-top: 5px; font-size: 12.5px; color: var(--text-leise); }
+.zaehler.warnung .zaehler-zahl { color: var(--fl-orange); }
+
+.fehlzeit {
+  appearance: none; border: none; font: inherit; text-align: left;
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 11px;
+  padding: 12px 15px;
+  margin-bottom: 6px;
+  border-radius: var(--radius);
+  background: var(--flaeche);
+  color: var(--text);
+  cursor: pointer;
+}
+.fehlzeit-datum { font-size: 14px; font-weight: 650; }
+.fehlzeit-text { font-size: 13px; color: var(--text-leise); }
+.fehlzeit-marke { font-size: 12px; font-weight: 700; color: var(--fl-gruen); }
+.fehlzeit.offen .fehlzeit-marke { color: var(--fl-orange); }
+
+/* ================================================================= Menue */
+
+.menue-liste { border-radius: var(--radius); background: var(--flaeche); overflow: hidden; }
+.menue-eintrag {
+  appearance: none; border: none; background: transparent; font: inherit;
+  width: 100%;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 15px;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.menue-eintrag + .menue-eintrag { border-top: 0.5px solid var(--trennlinie); }
+.menue-text { font-size: 16px; display: flex; flex-direction: column; gap: 2px; }
+.menue-unter { font-size: 13px; color: var(--text-leise); }
+.menue-pfeil { color: var(--text-sehr-leise); font-size: 20px; }
+
+/* ================================== Wochenansicht: Heute und Fachsymbol */
+
+.heute-bahn {
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--akzent) 11%, transparent);
+  pointer-events: none;
+  margin: -4px -3px;
+}
+.zelle .z-symbol { color: var(--fach-farbe); display: flex; opacity: 0.9; }
+.zelle.z-entfall .z-symbol { color: var(--text-sehr-leise); }

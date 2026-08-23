@@ -1,15 +1,18 @@
-// Service Worker: haelt die App offline verfuegbar und sorgt dafuer,
-// dass Updates beim naechsten Oeffnen sofort uebernommen werden.
+// Service Worker: haelt die App offline verfuegbar, sorgt fuer Updates und
+// reichert Push-Nachrichten um die eigenen Hausaufgaben an.
 // WICHTIG: Bei jedem App-Update die Versionsnummer hier UND die ?v=-Anhaenge
 // in index.html/app.js gemeinsam hochzaehlen.
-const CACHE = 'stundenplan-v8';
+const CACHE = 'stundenplan-v9';
 const HUELLE = [
   './',
   './index.html',
-  './styles.css?v=8',
-  './app.js?v=8',
-  './shared/konfiguration.mjs?v=8',
-  './shared/krypto.mjs?v=8',
+  './styles.css?v=9',
+  './app.js?v=9',
+  './bereiche.mjs?v=9',
+  './daten.mjs?v=9',
+  './symbole.mjs?v=9',
+  './shared/konfiguration.mjs?v=9',
+  './shared/krypto.mjs?v=9',
   './manifest.webmanifest',
   './icons/icon-180.png',
   './icons/icon-192.png',
@@ -29,6 +32,63 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+// ------------------------------------------- Eigene Daten nachschlagen
+// Der Server kennt nur WebUntis. Was Jasper selbst eingetragen hat, liegt
+// verschluesselt auf dem Geraet - hier lesen wir es beim Eintreffen der
+// Nachricht nach und haengen es an.
+
+// Kurzform -> Klarname. Bewusst doppelt gepflegt: ein klassischer Service
+// Worker kann die Konfigurationsdatei der App nicht importieren.
+const FAECHER = {
+  DE1: 'Deutsch',
+  ma2: 'Mathematik',
+  en1: 'Englisch',
+  bi2: 'Biologie',
+  ph1: 'Physik',
+  GE1: 'Geschichte',
+  EK1: 'Erdkunde',
+  sf3: 'Seminarfach',
+};
+
+const b64aus = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+
+function ausDatenbank(name) {
+  return new Promise((fertig) => {
+    const anfrage = indexedDB.open('stundenplan', 1);
+    anfrage.onerror = () => fertig(null);
+    anfrage.onsuccess = () => {
+      const verbindung = anfrage.result;
+      if (!verbindung.objectStoreNames.contains('werte')) return fertig(null);
+      const a = verbindung.transaction('werte', 'readonly').objectStore('werte').get(name);
+      a.onsuccess = () => fertig(a.result ?? null);
+      a.onerror = () => fertig(null);
+    };
+  });
+}
+
+/** Offene eigene Hausaufgaben fuer ein Datum - leer, wenn nichts lesbar ist. */
+async function eigeneAufgaben(datum) {
+  try {
+    const schluesselB64 = await ausDatenbank('schluessel');
+    const paket = await ausDatenbank('meineDaten');
+    if (!schluesselB64 || !paket?.iv) return [];
+
+    const schluessel = await crypto.subtle.importKey('raw', b64aus(schluesselB64), 'AES-GCM', false, ['decrypt']);
+    const klar = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64aus(paket.iv) }, schluessel, b64aus(paket.daten));
+    const daten = JSON.parse(new TextDecoder().decode(klar));
+
+    const treffer = [];
+    for (const [id, eintrag] of Object.entries(daten.notizen ?? {})) {
+      const [tag, , kurs] = id.split('|');
+      if (tag !== datum || !eintrag.aufgabe || eintrag.erledigt) continue;
+      treffer.push(`${FAECHER[kurs] ?? kurs}: ${eintrag.aufgabe}`);
+    }
+    return treffer;
+  } catch {
+    return [];
+  }
+}
+
 // ------------------------------------------------------------ Mitteilungen
 
 self.addEventListener('push', (e) => {
@@ -40,14 +100,26 @@ self.addEventListener('push', (e) => {
   }
 
   e.waitUntil(
-    self.registration.showNotification(inhalt.titel, {
-      body: inhalt.koerper,
-      icon: './icons/icon-192.png',
-      badge: './icons/icon-192.png',
-      tag: inhalt.marke ?? 'stundenplan',
-      renotify: true,
-      data: { datum: inhalt.datum ?? null },
-    })
+    (async () => {
+      let koerper = inhalt.koerper;
+
+      // Bei der Abend- und Morgenmeldung die eigenen Aufgaben anhaengen.
+      if (inhalt.datum && (inhalt.marke === 'abendblick' || inhalt.marke === 'morgen')) {
+        const eigene = await eigeneAufgaben(inhalt.datum);
+        if (eigene.length) {
+          koerper = `${koerper ? koerper + '\n' : ''}Offen: ${eigene.slice(0, 3).join(' · ')}`;
+        }
+      }
+
+      await self.registration.showNotification(inhalt.titel, {
+        body: koerper,
+        icon: './icons/icon-192.png',
+        badge: './icons/icon-192.png',
+        tag: inhalt.marke ?? 'stundenplan',
+        renotify: true,
+        data: { datum: inhalt.datum ?? null },
+      });
+    })()
   );
 });
 
@@ -69,19 +141,15 @@ self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
 
-  // Die Plandaten kommen auch von GitHub - alles andere Fremde geht am
-  // Cache vorbei direkt ins Netz.
   const eigene = url.origin === self.location.origin;
   const daten = url.hostname === 'raw.githubusercontent.com';
   if (!eigene && !daten) return;
 
-  // Immer erst das Netz fragen, den Cache als Rueckfallebene fuellen.
-  // Cache-First waere schneller, wuerde aber nach einem Update die alte App
-  // ausliefern - das ist den Bruchteil einer Sekunde nicht wert.
   // Der ?t=...-Anhang dient nur dem Frischhalten - im Cache soll je Datei
   // genau EIN Eintrag liegen, sonst waechst er mit jedem Abruf.
   const ablageSchluessel = url.searchParams.has('t') ? url.origin + url.pathname : e.request;
 
+  // Immer erst das Netz fragen, den Cache als Rueckfallebene fuellen.
   e.respondWith(
     fetch(e.request)
       .then((antwort) => {
@@ -92,8 +160,6 @@ self.addEventListener('fetch', (e) => {
         return antwort;
       })
       .catch(() =>
-        // ignoreSearch: der ?t=...-Anhang beim Aktualisieren und die
-        // ?v=-Versionen sollen den Offline-Treffer nicht verhindern.
         caches.match(e.request, { ignoreSearch: true }).then((treffer) => {
           if (treffer) return treffer;
           if (url.pathname.endsWith('.json')) {

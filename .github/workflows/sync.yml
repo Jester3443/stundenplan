@@ -8,6 +8,8 @@ on:
     # Abendvorschau: 19 UTC = 21:00 Sommerzeit / 20:00 Winterzeit,
     # sonntags bis donnerstags (fuer die Schultage Montag bis Freitag).
     - cron: '0 19 * * 0-4'
+    # Morgenueberblick: 4:30 UTC = 6:30 Sommerzeit / 5:30 Winterzeit.
+    - cron: '30 4 * * 1-5'
   workflow_dispatch: # erlaubt den Start von Hand
 
 # Zwei gleichzeitige Laeufe wuerden sich gegenseitig ueberschreiben.
@@ -66,6 +68,16 @@ jobs:
           PUSH_SUBSCRIPTION: ${{ secrets.PUSH_SUBSCRIPTION }}
           KNAPP: '1'
         run: npm run abend
+
+      - name: Morgenueberblick fuer heute
+        if: github.event.schedule == '30 4 * * 1-5'
+        env:
+          VAPID_PUBLIC: ${{ secrets.VAPID_PUBLIC }}
+          VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
+          VAPID_KONTAKT: https://stundenplan-jasper.web.app
+          PUSH_SUBSCRIPTION: ${{ secrets.PUSH_SUBSCRIPTION }}
+          KNAPP: '1'
+        run: npm run morgen
 
       - name: Verschluesselte Daten veroeffentlichen
         run: |

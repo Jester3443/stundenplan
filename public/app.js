@@ -1,16 +1,32 @@
-import { wochentyp, stundenBezeichnung, DOPPELBLOECKE, VAPID_OEFFENTLICH, DATEN_URL } from './shared/konfiguration.mjs?v=8';
 import {
-  schluesselAusCode,
-  entschluesseln,
-  verschluesseln,
+  wochentyp,
+  stundenBezeichnung,
+  DOPPELBLOECKE,
+  VAPID_OEFFENTLICH,
+  DATEN_URL,
+} from './shared/konfiguration.mjs?v=9';
+import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=9';
+import {
   schluesselSichern,
   schluesselLaden,
   schluesselVergessen,
-  b64,
-} from './shared/krypto.mjs?v=8';
+  ladeMeineDaten,
+  speichereMeineDaten,
+  LEER,
+} from './daten.mjs?v=9';
+import { symbolFuer } from './symbole.mjs?v=9';
+import {
+  initBereiche,
+  zeichneAufgaben,
+  zeichneNoten,
+  zeichneMehr,
+  schliesseEingabe,
+  eingabeOffen,
+  offeneAufgaben,
+} from './bereiche.mjs?v=9';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 8;
+const APP_VERSION = 9;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -20,7 +36,7 @@ const MONATE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
 /** Lokales YYYY-MM-DD, nicht über toISOString (das rechnet nach UTC). */
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-/** ISO-Kalenderwoche (die Zaehlung, die auch die Schule benutzt). */
+/** ISO-Kalenderwoche (die Zählung, die auch die Schule benutzt). */
 function kalenderwoche(datum) {
   const d = new Date(datum instanceof Date ? datum : `${datum}T12:00:00`);
   d.setHours(12, 0, 0, 0);
@@ -28,15 +44,17 @@ function kalenderwoche(datum) {
   const jahresanfang = new Date(d.getFullYear(), 0, 4);
   return 1 + Math.round(((d - jahresanfang) / 864e5 - 3 + ((jahresanfang.getDay() + 6) % 7)) / 7);
 }
+
 const alsDatum = (s) => new Date(`${s}T12:00:00`);
 const minuten = (uhr) => Number(uhr.slice(0, 2)) * 60 + Number(uhr.slice(3, 5));
 
 const zustand = {
   plan: null,
   gewaehlt: null, // YYYY-MM-DD
+  tab: 'plan',
   ansicht: localStorage.getItem('ansicht') === 'woche' ? 'woche' : 'tag',
   gelesen: new Set(JSON.parse(localStorage.getItem('gelesen') ?? '[]')),
-  notizen: {}, // "datum|von|kurs" -> { aufgabe, notiz }
+  meineDaten: LEER(),
 };
 
 let schluessel = null;
@@ -47,7 +65,7 @@ async function holeRoh(frisch) {
   const anhang = frisch ? `?t=${Date.now()}` : '';
   const einstellung = { cache: frisch ? 'reload' : 'default' };
 
-  // Bevorzugt aus der Cloud (immer aktuell, unabhaengig vom Deploy) ...
+  // Bevorzugt aus der Cloud (immer aktuell, unabhängig vom Deploy) ...
   if (DATEN_URL) {
     const cloud = await fetch(`${DATEN_URL}${anhang}`, einstellung).catch(() => null);
     if (cloud?.ok) return { verschluesselt: true, paket: await cloud.json() };
@@ -92,11 +110,9 @@ function frageCode({ fehler = false } = {}) {
 }
 
 /**
- * leise = Hintergrund-Aktualisierung: Wenn der gespeicherte Schluessel nicht
+ * leise = Hintergrund-Aktualisierung: Wenn der gespeicherte Schlüssel nicht
  * passt, wird NICHT der Sperrbildschirm gezeigt, sondern der alte Stand
- * behalten (Rueckgabe null). Nach der Code-Eingabe soll man nie wieder
- * rausgeworfen werden - das Salz bleibt serverseitig stabil, dies hier ist
- * nur der doppelte Boden.
+ * behalten (Rückgabe null).
  */
 async function ladePlan({ frisch = false, leise = false } = {}) {
   const roh = await holeRoh(frisch);
@@ -123,34 +139,17 @@ async function ladePlan({ frisch = false, leise = false } = {}) {
       return plan;
     } catch {
       schluessel = null;
-      schluesselVergessen();
+      await schluesselVergessen();
       fehler = true;
     }
   }
 }
 
-// -------------------------------------------------- Hausaufgaben & Notizen
-
-const notizId = (s) => `${s.datum}|${s.von}|${s.kurs ?? 'TERMIN'}`;
-
-async function ladeNotizen() {
-  const roh = localStorage.getItem('notizen');
-  if (!roh) return {};
-  try {
-    const inhalt = JSON.parse(roh);
-    if (inhalt?.iv) return schluessel ? await entschluesseln(inhalt, schluessel) : {};
-    return inhalt; // Klartext gibt es nur bei der lokalen Entwicklung
-  } catch {
-    return {};
-  }
-}
-
-async function speichereNotizen() {
-  const inhalt = schluessel ? await verschluesseln(zustand.notizen, schluessel) : zustand.notizen;
-  localStorage.setItem('notizen', JSON.stringify(inhalt));
-}
+const speichern = () => speichereMeineDaten(zustand.meineDaten, schluessel);
 
 // ------------------------------------------------------------- Hilfsmittel
+
+const notizId = (s) => `${s.datum}|${s.von}|${s.kurs ?? 'TERMIN'}`;
 
 const alleTage = () =>
   (zustand.plan?.wochen ?? [])
@@ -182,11 +181,12 @@ const istVertretung = (s) => !!s.lehrerErsetzt || s.status === 'SUBSTITUTION';
 const istRaumwechsel = (s) => !!s.raumErsetzt;
 const istGeaendert = (s) => istEntfall(s) || istVertretung(s) || istRaumwechsel(s) || s.status === 'CHANGED';
 
+const eintragVon = (s) => zustand.meineDaten.notizen[notizId(s)] ?? {};
 const hatEigenes = (s) => {
-  const e = zustand.notizen[notizId(s)];
-  return { aufgabe: !!e?.aufgabe, notiz: !!e?.notiz };
+  const e = eintragVon(s);
+  return { aufgabe: !!e.aufgabe, notiz: !!e.notiz };
 };
-const hatLehrerAufgabe = (s) => (s.aufgaben ?? []).length > 0;
+const hatLehrerAufgabe = (s) => (s.aufgaben ?? []).some((a) => a.text || a.anmerkung);
 
 /** Wann der Tag wirklich beginnt und endet - entfallene Randstunden zählen nicht. */
 function tagesInfo(tag) {
@@ -208,7 +208,6 @@ function tagesInfo(tag) {
   ].join(' · ');
 }
 
-/** Zusammenfassung einer Woche für die Kopfzeile. */
 function wochenInfo(woche) {
   if (!woche) return '';
   const stunden = woche.tage.flatMap((t) => t.stunden);
@@ -221,6 +220,28 @@ function wochenInfo(woche) {
 // ---------------------------------------------------------------- Kopfzeile
 
 function zeichneKopf() {
+  const planTab = zustand.tab === 'plan';
+  $('umschalter').hidden = !planTab;
+  $('wocheAbzeichen').hidden = !(planTab && zustand.ansicht === 'tag');
+  $('tagesleiste').hidden = !(planTab && zustand.ansicht === 'tag');
+  $('aktualisieren').hidden = !planTab;
+
+  if (!planTab) {
+    const titel = { aufgaben: 'Aufgaben', noten: 'Noten', mehr: 'Mehr' }[zustand.tab];
+    const offen = zustand.tab === 'aufgaben' ? offeneAufgaben().length : 0;
+    $('kopfDatum').textContent = 'Stundenplan';
+    $('kopfTitel').textContent = titel;
+    $('kopfInfo').textContent =
+      zustand.tab === 'aufgaben'
+        ? offen
+          ? `${offen} ${offen === 1 ? 'Aufgabe' : 'Aufgaben'} offen`
+          : 'Alles erledigt'
+        : zustand.tab === 'noten'
+          ? 'Deine Punkte im Überblick'
+          : 'Fehlzeiten und Einstellungen';
+    return;
+  }
+
   const wochenModus = zustand.ansicht === 'woche';
   const tag = tagFinden(zustand.gewaehlt);
   const woche = wocheFinden(zustand.gewaehlt);
@@ -242,13 +263,10 @@ function zeichneKopf() {
   }
 
   $('wocheAbzeichen').textContent = `KW ${kalenderwoche(zustand.gewaehlt)} · ${tag?.wochentyp ?? wochentyp(zustand.gewaehlt)}`;
-  $('wocheAbzeichen').hidden = wochenModus;
-
   $('ansichtTag').classList.toggle('aktiv', !wochenModus);
   $('ansichtWoche').classList.toggle('aktiv', wochenModus);
   $('ansichtTag').setAttribute('aria-selected', String(!wochenModus));
   $('ansichtWoche').setAttribute('aria-selected', String(wochenModus));
-  $('tagesleiste').hidden = wochenModus;
 }
 
 function zeichneTagesleiste() {
@@ -284,6 +302,39 @@ function zeichneTagesleiste() {
 
 // ------------------------------------------------------------- Tagesansicht
 
+function heroKarte(stunden, jetztMin) {
+  const kommend = stunden.filter((s) => !istEntfall(s));
+  const laufend = kommend.find((s) => jetztMin >= minuten(s.von) && jetztMin < minuten(s.bis));
+  const naechste = kommend.find((s) => minuten(s.von) > jetztMin);
+  const s = laufend ?? naechste;
+  if (!s) return null;
+
+  const el = document.createElement('button');
+  el.type = 'button';
+  el.className = 'hero';
+  el.style.setProperty('--fach-farbe', farbeVon(s.farbe));
+
+  let label;
+  let balken = '';
+  if (laufend) {
+    const gesamt = minuten(s.bis) - minuten(s.von);
+    const um = jetztMin - minuten(s.von);
+    label = `<span class="hero-label live">Jetzt · noch ${gesamt - um} Min</span>`;
+    balken = `<div class="hero-balken"><div style="width:${Math.round((um / gesamt) * 100)}%"></div></div>`;
+  } else {
+    const inMin = minuten(s.von) - jetztMin;
+    label = `<span class="hero-label">${inMin <= 90 ? `Gleich · in ${inMin} Min` : `Als Nächstes · ${s.von} Uhr`}</span>`;
+  }
+
+  const teile = [s.lehrerLang || s.lehrer, s.raum, `${s.block} Stunde`].filter(Boolean).join(' · ');
+  el.innerHTML =
+    `${label}` +
+    `<h2 class="hero-fach">${symbolFuer(s.fachName, { groesse: 24, strich: 1.9 })}${s.fachName || s.kurs}</h2>` +
+    `<p class="hero-zeile">${teile}</p>${balken}`;
+  el.addEventListener('click', () => oeffneStunde(s));
+  return el;
+}
+
 function stundenKarte(s, jetztMin, istHeute) {
   const wrapper = document.createElement('article');
   wrapper.className = 'stunde';
@@ -306,7 +357,7 @@ function stundenKarte(s, jetztMin, istHeute) {
   const kopf = document.createElement('div');
   kopf.className = 'karte-kopf';
   kopf.innerHTML =
-    `<h2 class="fach">${s.fachName || s.kurs || 'Termin'}</h2>` +
+    `<h2 class="fach">${symbolFuer(s.fachName, { groesse: 16, strich: 1.9 })}${s.fachName || s.kurs || 'Termin'}</h2>` +
     (s.niveau ? `<span class="niveau">${s.niveau}</span>` : '') +
     (laeuft ? `<span class="rest">noch ${minuten(s.bis) - jetztMin} Min</span>` : '');
 
@@ -360,46 +411,11 @@ function stundenKarte(s, jetztMin, istHeute) {
   return wrapper;
 }
 
-/**
- * Die grosse Buehne oben: laufende Stunde (mit Fortschrittsbalken) oder die
- * naechste, die heute noch kommt. Beantwortet sofort: Wo muss ich hin?
- */
-function heroKarte(stunden, jetztMin) {
-  const kommend = stunden.filter((s) => !istEntfall(s));
-  const laufend = kommend.find((s) => jetztMin >= minuten(s.von) && jetztMin < minuten(s.bis));
-  const naechste = kommend.find((s) => minuten(s.von) > jetztMin);
-  const s = laufend ?? naechste;
-  if (!s) return null;
-
-  const el = document.createElement('button');
-  el.type = 'button';
-  el.className = 'hero';
-  el.style.setProperty('--fach-farbe', farbeVon(s.farbe));
-
-  let label;
-  let balken = '';
-  if (laufend) {
-    const gesamt = minuten(s.bis) - minuten(s.von);
-    const um = jetztMin - minuten(s.von);
-    label = `<span class="hero-label live">Jetzt · noch ${gesamt - um} Min</span>`;
-    balken = `<div class="hero-balken"><div style="width:${Math.round((um / gesamt) * 100)}%"></div></div>`;
-  } else {
-    const inMin = minuten(s.von) - jetztMin;
-    label = `<span class="hero-label">${inMin <= 90 ? `Gleich · in ${inMin} Min` : `Als Nächstes · ${s.von} Uhr`}</span>`;
-  }
-
-  const teile = [s.lehrerLang || s.lehrer, s.raum, `${s.block} Stunde`].filter(Boolean).join(' · ');
-  el.innerHTML = `${label}<h2 class="hero-fach">${s.fachName || s.kurs}</h2><p class="hero-zeile">${teile}</p>${balken}`;
-  el.addEventListener('click', () => oeffneStunde(s));
-  return el;
-}
-
-function zeichneTag() {
-  const inhalt = $('inhalt');
-  inhalt.textContent = '';
+function zeichneTag(ziel) {
+  ziel.textContent = '';
 
   const offen = (zustand.plan?.aenderungen ?? []).filter((a) => !zustand.gelesen.has(kennung(a)));
-  if (offen.length) inhalt.append(banner(offen));
+  if (offen.length) ziel.append(banner(offen));
 
   const tag = tagFinden(zustand.gewaehlt);
   const istHeute = iso(new Date()) === zustand.gewaehlt;
@@ -407,12 +423,12 @@ function zeichneTag() {
   const jetztMin = jetzt.getHours() * 60 + jetzt.getMinutes();
 
   if (!tag) {
-    inhalt.append(leerHinweis('Kein Plan', 'Für diesen Tag liegen keine Daten vor.'));
+    ziel.append(leerHinweis('Kein Plan', 'Für diesen Tag liegen keine Daten vor.'));
     return;
   }
   if (!tag.stunden.length) {
     const woche = wocheFinden(tag.datum);
-    inhalt.append(
+    ziel.append(
       woche && !woche.veroeffentlicht
         ? leerHinweis('Noch kein Plan', 'Diese Woche ist in WebUntis noch nicht veröffentlicht.')
         : leerHinweis('Schulfrei', 'An diesem Tag hast du keinen Unterricht.')
@@ -422,35 +438,31 @@ function zeichneTag() {
 
   const stunden = [...tag.stunden].sort((a, b) => a.von.localeCompare(b.von));
 
-  // Buehne oben - nur fuer heute, solange noch etwas ansteht.
   const hero = istHeute ? heroKarte(stunden, jetztMin) : null;
-  if (hero) inhalt.append(hero);
+  if (hero) ziel.append(hero);
 
-  let jetztGesetzt = !!hero; // mit Hero braucht es keine rote Jetzt-Linie
+  let jetztGesetzt = !!hero;
 
   stunden.forEach((s, i) => {
     if (istHeute && !jetztGesetzt && jetztMin < minuten(s.von)) {
-      inhalt.append(jetztLinie(jetzt));
+      ziel.append(jetztLinie(jetzt));
       jetztGesetzt = true;
     }
     const karte = stundenKarte(s, jetztMin, istHeute);
     if (istHeute && minuten(s.bis) <= jetztMin) karte.classList.add('vorbei');
-    inhalt.append(karte);
+    ziel.append(karte);
 
     const naechste = stunden[i + 1];
     if (naechste) {
       const luecke = minuten(naechste.von) - minuten(s.bis);
-      // Jede echte Pause zeigen - auch die kurze 15-Minuten-Pause vor dem
-      // 3. Block. Nur 5-Minuten-Wechsel bleiben stumm, und zwischen zwei
-      // entfallenen Stunden gibt es nichts zu pausieren.
       const sinnvoll = !(istEntfall(s) && istEntfall(naechste));
-      if (luecke >= 10 && sinnvoll) inhalt.append(pause(luecke));
+      if (luecke >= 10 && sinnvoll) ziel.append(pause(luecke));
     }
   });
 
   if (istHeute && !jetztGesetzt) {
     const letzteEnde = stunden.reduce((m, s) => Math.max(m, minuten(s.bis)), 0);
-    if (jetztMin >= letzteEnde) inhalt.append(jetztLinie(jetzt));
+    if (jetztMin >= letzteEnde) ziel.append(jetztLinie(jetzt));
   }
 }
 
@@ -505,13 +517,11 @@ function banner(aenderungen) {
 
 // ----------------------------------------------------------- Wochenansicht
 
-/** In welchen Doppelblock faellt eine Stunde? (Index in DOPPELBLOECKE) */
-const blockIndex = (s) =>
-  DOPPELBLOECKE.findIndex((b) => s.von >= b.von && s.von < b.bis);
+const blockIndex = (s) => DOPPELBLOECKE.findIndex((b) => s.von >= b.von && s.von < b.bis);
 
 /**
- * Weiche Trennstellen fuer die schmalen Wochenzellen. Die automatische
- * Silbentrennung ist je nach Geraet unzuverlaessig - diese Liste nicht.
+ * Weiche Trennstellen für die schmalen Wochenzellen. Die automatische
+ * Silbentrennung ist je nach Gerät unzuverlässig - diese Liste nicht.
  */
 const TRENNUNGEN = {
   Geschichte: 'Ge­schich­te',
@@ -523,30 +533,26 @@ const TRENNUNGEN = {
 };
 const trenne = (name) => TRENNUNGEN[name] ?? name;
 
-function zeichneWoche() {
-  const inhalt = $('inhalt');
-  inhalt.textContent = '';
-  inhalt.classList.add('woche-modus');
+function zeichneWoche(ziel) {
+  ziel.textContent = '';
+  ziel.classList.add('woche-modus');
 
   const offen = (zustand.plan?.aenderungen ?? []).filter((a) => !zustand.gelesen.has(kennung(a)));
-  if (offen.length) inhalt.append(banner(offen));
+  if (offen.length) ziel.append(banner(offen));
 
   const woche = wocheFinden(zustand.gewaehlt);
   if (!woche) {
-    inhalt.append(leerHinweis('Kein Plan', 'Für diese Woche liegen keine Daten vor.'));
+    ziel.append(leerHinweis('Kein Plan', 'Für diese Woche liegen keine Daten vor.'));
     return;
   }
   if (!woche.veroeffentlicht) {
-    inhalt.append(leerHinweis('Noch kein Plan', 'Diese Woche ist in WebUntis noch nicht veröffentlicht.'));
+    ziel.append(leerHinweis('Noch kein Plan', 'Diese Woche ist in WebUntis noch nicht veröffentlicht.'));
     return;
   }
 
-  // Kursstunden kommen ins Raster, Termine als eigene Zeile darunter -
-  // sonst verschieben ihre krummen Zeiten die Blöcke aller anderen Tage.
   const kursstundenVon = (tag) => tag.stunden.filter((s) => s.kurs);
   const termineVon = (tag) => tag.stunden.filter((s) => !s.kurs);
 
-  // Nur Blöcke zeigen, in denen diese Woche irgendetwas stattfindet.
   const benutzt = new Set();
   for (const tag of woche.tage) {
     for (const s of kursstundenVon(tag)) {
@@ -558,14 +564,22 @@ function zeichneWoche() {
 
   const raster = document.createElement('div');
   raster.className = 'raster';
-  // Kopfzeile schmal, alle Blockzeilen teilen sich die restliche Höhe.
   raster.style.gridTemplateRows = `auto repeat(${zeilen.length}, 1fr)`;
 
   const heute = iso(new Date());
   const jetzt = new Date();
   const jetztMin = jetzt.getHours() * 60 + jetzt.getMinutes();
+  const heuteSpalte = woche.tage.findIndex((t) => t.datum === heute);
 
-  // Ecke + Tagesköpfe (Tipp auf einen Tag öffnet dessen Tagesansicht)
+  // Farbige Bahn hinter der heutigen Spalte - hebt den Tag klar hervor.
+  if (heuteSpalte >= 0) {
+    const bahn = document.createElement('div');
+    bahn.className = 'heute-bahn';
+    bahn.style.gridColumn = String(heuteSpalte + 2);
+    bahn.style.gridRow = `1 / span ${zeilen.length + 1}`;
+    raster.append(bahn);
+  }
+
   raster.append(document.createElement('div'));
   for (const tag of woche.tage) {
     const kopf = document.createElement('button');
@@ -597,18 +611,18 @@ function zeichneWoche() {
         raster.append(zelle);
         continue;
       }
-      if (s) zelle.type = 'button';
+      zelle.type = 'button';
       zelle.style.setProperty('--fach-farbe', farbeVon(s.farbe));
       if (istEntfall(s)) zelle.classList.add('z-entfall');
       else if (istGeaendert(s)) zelle.classList.add('z-geaendert');
 
-      // Läuft diese Stunde gerade? Dann bekommt sie den Rahmen.
       if (tag.datum === heute && !istEntfall(s) && jetztMin >= minuten(s.von) && jetztMin < minuten(s.bis)) {
         zelle.classList.add('z-jetzt');
       }
 
       const eigenes = hatEigenes(s);
       zelle.innerHTML =
+        `<span class="z-symbol">${symbolFuer(s.fachName, { groesse: 15, strich: 1.9 })}</span>` +
         `<span class="z-fach">${trenne(s.fachName || s.kurs)}</span>` +
         `<span class="z-detail">${[s.raum, s.lehrer].filter(Boolean).join(' · ')}</span>` +
         (hatLehrerAufgabe(s) || eigenes.aufgabe || eigenes.notiz ? '<span class="z-punkt"></span>' : '');
@@ -617,9 +631,8 @@ function zeichneWoche() {
     }
   }
 
-  inhalt.append(raster);
+  ziel.append(raster);
 
-  // Termine der Woche als kompakte Chips - Details per Tipp.
   const termine = woche.tage.flatMap((tag) => termineVon(tag));
   if (termine.length) {
     const leiste = document.createElement('div');
@@ -633,7 +646,7 @@ function zeichneWoche() {
       chip.addEventListener('click', () => oeffneStunde(termin));
       leiste.append(chip);
     }
-    inhalt.append(leiste);
+    ziel.append(leiste);
   }
 }
 
@@ -643,14 +656,14 @@ let offeneStunde = null;
 
 function oeffneStunde(s) {
   offeneStunde = s;
-  const eigene = zustand.notizen[notizId(s)] ?? {};
+  const eigene = eintragVon(s);
   const d = alsDatum(s.datum);
 
-  const karte = document.querySelector('.modal-karte');
+  const karte = document.querySelector('#stundeModal .modal-karte');
   karte.style.setProperty('--fach-farbe', farbeVon(s.farbe));
 
   $('modalBlock').textContent = `${TAGE_KURZ[d.getDay()]} ${d.getDate()}.${d.getMonth() + 1}. · ${s.block} Stunde · ${s.von}–${s.bis}`;
-  $('modalFach').textContent = s.fachName || s.kurs || 'Termin';
+  $('modalFach').innerHTML = `${symbolFuer(s.fachName, { groesse: 24, strich: 1.9 })}${s.fachName || s.kurs || 'Termin'}`;
   $('modalFach').classList.toggle('entfaellt', istEntfall(s));
 
   const teile = [];
@@ -662,9 +675,7 @@ function oeffneStunde(s) {
   const marke = $('modalMarke');
   if (istEntfall(s)) {
     marke.className = 'marke entfall';
-    marke.textContent = s.eva
-      ? 'Entfällt – Lehrkraft fehlt, nichts wird vertreten'
-      : 'Diese Stunde entfällt';
+    marke.textContent = s.eva ? 'Entfällt – Lehrkraft fehlt, nichts wird vertreten' : 'Diese Stunde entfällt';
     marke.hidden = false;
   } else if (istVertretung(s)) {
     marke.className = 'marke vertretung';
@@ -678,7 +689,6 @@ function oeffneStunde(s) {
     marke.hidden = true;
   }
 
-  // Hausaufgaben, die die Lehrkraft in WebUntis eingetragen hat
   const bereich = $('modalAufgaben');
   bereich.textContent = '';
   for (const a of s.aufgaben ?? []) {
@@ -709,14 +719,24 @@ function oeffneStunde(s) {
   $('modalHintergrund').hidden = false;
 }
 
-async function schliesseStunde({ speichern = true, loeschen = false } = {}) {
-  if (offeneStunde && (speichern || loeschen)) {
+async function schliesseStunde({ speichernJa = true, loeschen = false } = {}) {
+  if (offeneStunde && (speichernJa || loeschen)) {
     const id = notizId(offeneStunde);
+    const vorhanden = zustand.meineDaten.notizen[id] ?? {};
     const aufgabe = $('notizAufgabe').value.trim();
     const notiz = $('notizText').value.trim();
-    if (loeschen || (!aufgabe && !notiz)) delete zustand.notizen[id];
-    else zustand.notizen[id] = { aufgabe, notiz };
-    await speichereNotizen();
+
+    if (loeschen) {
+      delete zustand.meineDaten.notizen[id];
+    } else if (!aufgabe && !notiz) {
+      // Erledigt-Haken der Lehrer-Aufgaben behalten, auch ohne eigenen Text.
+      const rest = Object.fromEntries(Object.entries(vorhanden).filter(([k]) => k.startsWith('erledigt_')));
+      if (Object.keys(rest).length) zustand.meineDaten.notizen[id] = rest;
+      else delete zustand.meineDaten.notizen[id];
+    } else {
+      zustand.meineDaten.notizen[id] = { ...vorhanden, aufgabe, notiz };
+    }
+    await speichern();
   }
   offeneStunde = null;
   $('stundeModal').hidden = true;
@@ -733,6 +753,8 @@ const vapidBytes = (text) => {
 
 const pushMoeglich = () =>
   VAPID_OEFFENTLICH && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+
+let pushAn = false;
 
 async function oeffnePush() {
   $('pushBlatt').hidden = false;
@@ -765,6 +787,7 @@ async function oeffnePush() {
       applicationServerKey: vapidBytes(VAPID_OEFFENTLICH),
     }));
 
+  pushAn = true;
   $('pushStatus').textContent = 'Mitteilungen sind erlaubt';
   $('pushHinweis').textContent = 'Diese Anmeldung muss einmal beim Server hinterlegt werden. Danach ist nichts mehr zu tun.';
   $('pushDaten').value = JSON.stringify(anmeldung.toJSON());
@@ -772,17 +795,26 @@ async function oeffnePush() {
   $('pushKopieren').hidden = false;
 }
 
-async function pushKnopfAktualisieren() {
-  const knopf = $('mitteilungen');
-  if (!pushMoeglich()) {
-    knopf.hidden = true;
-    return;
+async function pushStandPruefen() {
+  if (!pushMoeglich()) return;
+  try {
+    // serviceWorker.ready wartet EWIG, wenn die Registrierung scheitert.
+    // Deshalb mit Zeitgrenze - die App darf daran nie haengen bleiben.
+    const reg = await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise((fertig) => setTimeout(() => fertig(null), 1500)),
+    ]);
+    const anmeldung = await reg?.pushManager?.getSubscription().catch(() => null);
+    pushAn = !!anmeldung;
+  } catch {
+    pushAn = false;
   }
-  knopf.hidden = false;
-  const reg = await navigator.serviceWorker.ready.catch(() => null);
-  const anmeldung = await reg?.pushManager.getSubscription().catch(() => null);
-  knopf.textContent = anmeldung ? 'Mitteilungen ✓' : 'Mitteilungen';
 }
+
+const pushStatusText = () =>
+  !pushMoeglich() ? 'Auf diesem Gerät nicht verfügbar' : pushAn ? 'Aktiv' : 'Noch nicht eingerichtet';
+
+const standText = () => (zustand.plan ? zeitstempel(zustand.plan.aktualisiert) : 'noch nicht geladen');
 
 // ------------------------------------------------------------------ Steuerung
 
@@ -797,30 +829,51 @@ function setzeAnsicht(ansicht) {
   zeichnen();
 }
 
+function setzeTab(tab) {
+  zustand.tab = tab;
+  // Bereichswechsel immer oben beginnen, nicht mitten im alten Inhalt.
+  window.scrollTo({ top: 0 });
+  for (const knopf of document.querySelectorAll('.tab')) {
+    const aktiv = knopf.dataset.tab === tab;
+    knopf.classList.toggle('aktiv', aktiv);
+    if (aktiv) knopf.setAttribute('aria-current', 'page');
+    else knopf.removeAttribute('aria-current');
+  }
+  zeichnen();
+}
+
 function zeichnen() {
+  // Vor dem ersten geladenen Plan gibt es nichts zu zeichnen - sonst
+  // rechnet die Kopfzeile mit einem leeren Datum ("undefined, NaN").
+  if (!zustand.plan || !zustand.gewaehlt) return;
+
   zeichneKopf();
 
-  // Hereingleiten nur bei echtem Wechsel (Tag/Ansicht) - nicht bei den
-  // stillen 30-Sekunden-Aktualisierungen, sonst flackert alles staendig.
-  const schluesselJetzt = `${zustand.ansicht}|${zustand.gewaehlt}`;
+  const inhalt = $('inhalt');
+  const schluesselJetzt = `${zustand.tab}|${zustand.ansicht}|${zustand.gewaehlt}`;
   const animieren = zeichnen.zuletzt !== schluesselJetzt;
   zeichnen.zuletzt = schluesselJetzt;
-  $('inhalt').classList.toggle('ohne-animation', !animieren);
+  inhalt.classList.toggle('ohne-animation', !animieren);
+  inhalt.classList.remove('woche-modus');
 
-  if (zustand.ansicht === 'woche') {
-    zeichneWoche();
-  } else {
-    $('inhalt').classList.remove('woche-modus');
+  if (zustand.tab === 'aufgaben') zeichneAufgaben(inhalt);
+  else if (zustand.tab === 'noten') zeichneNoten(inhalt);
+  else if (zustand.tab === 'mehr') zeichneMehr(inhalt);
+  else if (zustand.ansicht === 'woche') zeichneWoche(inhalt);
+  else {
     zeichneTagesleiste();
-    zeichneTag();
+    zeichneTag(inhalt);
   }
 
-  // Gestaffelte Verzoegerung fuer das Hereingleiten
-  [...$('inhalt').children].forEach((el, i) => el.style.setProperty('--i', i));
+  const offen = offeneAufgaben().length;
+  $('tabPunktAufgaben').hidden = offen === 0;
+
+  [...inhalt.children].forEach((el, i) => el.style.setProperty('--i', i));
 }
 
 /** Einen Schultag bzw. eine Woche vor oder zurück. */
 function blaettern(richtung) {
+  if (zustand.tab !== 'plan') return;
   if (zustand.ansicht === 'woche') {
     const wochen = zustand.plan?.wochen ?? [];
     const i = wochen.findIndex((w) => w.tage.some((t) => t.datum === zustand.gewaehlt));
@@ -843,47 +896,71 @@ function zeitstempel(wert) {
 
 async function starten({ frisch = false, leise = false } = {}) {
   const knopf = $('aktualisieren');
-  knopf.disabled = true;
-  knopf.textContent = 'Lade …';
+  knopf.classList.add('dreht');
   try {
     const plan = await ladePlan({ frisch, leise });
-    if (plan) zustand.plan = plan; // null = leiser Abgleich fehlgeschlagen, alten Stand behalten
-    zustand.notizen = await ladeNotizen();
+    if (plan) zustand.plan = plan;
+    zustand.meineDaten = await ladeMeineDaten(schluessel);
     zustand.gewaehlt ??= startTag();
     if (!tagFinden(zustand.gewaehlt)) zustand.gewaehlt = startTag();
-    $('stand').textContent = `${zeitstempel(zustand.plan.aktualisiert)} · v${APP_VERSION}`;
     zeichnen();
+    // Push-Status im Hintergrund nachreichen - blockiert die Anzeige nicht.
+    pushStandPruefen().then(() => {
+      if (zustand.tab === 'mehr') zeichnen();
+    });
   } catch (error) {
-    // Ohne Netz und ohne alten Stand gibt es nichts zu zeigen - sonst still bleiben.
     if (!zustand.plan) {
       $('inhalt').textContent = '';
       $('inhalt').append(leerHinweis('Keine Daten', error.message));
     }
   } finally {
-    knopf.disabled = false;
-    knopf.textContent = 'Aktualisieren';
+    knopf.classList.remove('dreht');
   }
 }
+
+// Alles, was die anderen Bereiche von hier brauchen.
+initBereiche({
+  zustand,
+  iso,
+  alleTage,
+  notizId,
+  speichern,
+  zeichnen,
+  oeffneStunde,
+  oeffnePush,
+  pushStatusText,
+  standText,
+  starten,
+  version: APP_VERSION,
+});
+
+// ----------------------------------------------------------------- Ereignisse
 
 $('aktualisieren').addEventListener('click', () => starten({ frisch: true }));
 $('ansichtTag').addEventListener('click', () => setzeAnsicht('tag'));
 $('ansichtWoche').addEventListener('click', () => setzeAnsicht('woche'));
 
+for (const knopf of document.querySelectorAll('.tab')) {
+  knopf.addEventListener('click', () => setzeTab(knopf.dataset.tab));
+}
+
 $('notizSichern').addEventListener('click', () => schliesseStunde());
 $('notizLoeschen').addEventListener('click', () => schliesseStunde({ loeschen: true }));
 $('modalSchliessen').addEventListener('click', () => schliesseStunde());
-$('modalHintergrund').addEventListener('click', () => schliesseStunde());
 
-$('mitteilungen').addEventListener('click', () =>
-  oeffnePush().catch((fehler) => {
-    $('pushStatus').textContent = 'Fehler';
-    $('pushHinweis').textContent = fehler.message;
-  })
-);
+$('eingabeSichern').addEventListener('click', () => schliesseEingabe({ sichern: true }));
+$('eingabeLoeschen').addEventListener('click', () => schliesseEingabe({ loeschen: true }));
+$('eingabeSchliessen').addEventListener('click', () => schliesseEingabe());
+
+$('modalHintergrund').addEventListener('click', () => {
+  if (eingabeOffen()) schliesseEingabe();
+  else schliesseStunde();
+});
+
 $('pushSchliessen').addEventListener('click', () => {
   $('pushBlatt').hidden = true;
   $('blattHintergrund').hidden = true;
-  pushKnopfAktualisieren();
+  pushStandPruefen().then(zeichnen);
 });
 $('pushKopieren').addEventListener('click', async () => {
   const feld = $('pushDaten');
@@ -898,7 +975,8 @@ $('pushKopieren').addEventListener('click', async () => {
 $('blattHintergrund').addEventListener('click', () => $('pushSchliessen').click());
 
 /** Ist gerade ein Fenster offen? Dann darf Wischen nicht blättern. */
-const fensterOffen = () => !$('stundeModal').hidden || !$('pushBlatt').hidden || !$('sperre').hidden;
+const fensterOffen = () =>
+  !$('stundeModal').hidden || !$('eingabeModal').hidden || !$('pushBlatt').hidden || !$('sperre').hidden;
 
 let startX = 0;
 let startY = 0;
@@ -916,7 +994,8 @@ document.addEventListener('touchend', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
-    if (offeneStunde) schliesseStunde();
+    if (eingabeOffen()) schliesseEingabe();
+    else if (offeneStunde) schliesseStunde();
     else if (!$('pushBlatt').hidden) $('pushSchliessen').click();
     return;
   }
@@ -925,16 +1004,14 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowLeft') blaettern(-1);
 });
 
-// Beim Zurückkehren zur App neu laden - das ist der "prüft beim Öffnen"-Teil.
-// Gleichzeitig nach einer neuen App-Version suchen.
+// Beim Zurückkehren zur App neu laden und nach einer neuen Version suchen.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   navigator.serviceWorker?.getRegistration().then((reg) => reg?.update()).catch(() => {});
   if (!fensterOffen()) starten({ frisch: true, leise: true });
 });
 
-// Sobald eine neue Version uebernommen hat: einmal neu laden, damit alle
-// Teile (HTML, Skript, Styles) garantiert zusammenpassen.
+// Sobald eine neue Version übernommen hat: einmal neu laden.
 let einmalNeuGeladen = false;
 navigator.serviceWorker?.addEventListener('controllerchange', () => {
   if (einmalNeuGeladen) return;
@@ -944,13 +1021,14 @@ navigator.serviceWorker?.addEventListener('controllerchange', () => {
 
 // Laufende Stunde und Jetzt-Linie aktuell halten
 setInterval(() => {
-  if (zustand.plan && zustand.ansicht === 'tag' && iso(new Date()) === zustand.gewaehlt && !fensterOffen()) {
-    zeichneTag();
+  if (zustand.plan && zustand.tab === 'plan' && zustand.ansicht === 'tag' && iso(new Date()) === zustand.gewaehlt && !fensterOffen()) {
+    zeichnen();
   }
 }, 30_000);
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').then(pushKnopfAktualisieren).catch(() => {});
+  navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
+setzeTab('plan');
 starten();

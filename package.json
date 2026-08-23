@@ -10,10 +10,11 @@
     "serve": "node scripts/server.mjs",
     "icons": "node scripts/icons.mjs",
     "push": "node scripts/push.mjs",
-    "abend": "node scripts/abendblick.mjs",
     "vapid": "node scripts/vapid.mjs",
     "test:login": "node scripts/test-login.mjs",
-    "dump": "node scripts/dump-my.mjs 6"
+    "dump": "node scripts/dump-my.mjs 6",
+    "abend": "node scripts/vorschau.mjs abend",
+    "morgen": "node scripts/vorschau.mjs morgen"
   },
   "dependencies": {
     "dotenv": "^17.2.3",
