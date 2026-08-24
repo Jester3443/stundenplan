@@ -15,7 +15,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="icons/icon-180.png" />
     <link rel="icon" href="icons/icon-180.png" />
-    <link rel="stylesheet" href="styles.css?v=10" />
+    <link rel="stylesheet" href="styles.css?v=11" />
   </head>
   <body>
     <div class="app">
@@ -36,6 +36,11 @@
           </div>
         </div>
         <p class="kopf-info" id="kopfInfo"></p>
+
+        <div class="tagesfortschritt" id="tagesFortschritt" hidden>
+          <div class="tf-balken"><div class="tf-fuellung" id="tfFuellung"></div></div>
+          <span class="tf-text" id="tfText"></span>
+        </div>
 
         <div class="umschalter" id="umschalter" role="tablist" aria-label="Ansicht wählen" hidden>
           <button class="um-knopf aktiv" id="ansichtTag" type="button" role="tab" aria-selected="true">Tag</button>
@@ -172,6 +177,6 @@
     </div>
     <div class="blatt-hintergrund" id="blattHintergrund" hidden></div>
 
-    <script type="module" src="app.js?v=10"></script>
+    <script type="module" src="app.js?v=11"></script>
   </body>
 </html>

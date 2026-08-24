@@ -2,17 +2,17 @@
 // reichert Push-Nachrichten um die eigenen Hausaufgaben an.
 // WICHTIG: Bei jedem App-Update die Versionsnummer hier UND die ?v=-Anhaenge
 // in index.html/app.js gemeinsam hochzaehlen.
-const CACHE = 'stundenplan-v10';
+const CACHE = 'stundenplan-v11';
 const HUELLE = [
   './',
   './index.html',
-  './styles.css?v=10',
-  './app.js?v=10',
-  './bereiche.mjs?v=10',
-  './daten.mjs?v=10',
-  './symbole.mjs?v=10',
-  './shared/konfiguration.mjs?v=10',
-  './shared/krypto.mjs?v=10',
+  './styles.css?v=11',
+  './app.js?v=11',
+  './bereiche.mjs?v=11',
+  './daten.mjs?v=11',
+  './symbole.mjs?v=11',
+  './shared/konfiguration.mjs?v=11',
+  './shared/krypto.mjs?v=11',
   './manifest.webmanifest',
   './icons/icon-180.png',
   './icons/icon-192.png',
@@ -66,7 +66,7 @@ function ausDatenbank(name) {
   });
 }
 
-/** Offene eigene Hausaufgaben fuer ein Datum - leer, wenn nichts lesbar ist. */
+/** Offene eigene Aufgaben und Lernetappen fuer ein Datum. */
 async function eigeneAufgaben(datum) {
   try {
     const schluesselB64 = await ausDatenbank('schluessel');
@@ -83,6 +83,8 @@ async function eigeneAufgaben(datum) {
       if (tag !== datum || !eintrag.aufgabe || eintrag.erledigt) continue;
       treffer.push(`${FAECHER[kurs] ?? kurs}: ${eintrag.aufgabe}`);
     }
+    // Lernetappen zu anstehenden Klausuren - die App legt sie fertig ab.
+    for (const text of daten.lernVorschau?.[datum] ?? []) treffer.push(text);
     return treffer;
   } catch {
     return [];

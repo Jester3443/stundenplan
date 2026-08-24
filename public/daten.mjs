@@ -5,7 +5,7 @@
 // Worker NICHT zugreifen. Er muss aber abends beim Eintreffen der
 // Push-Nachricht nachsehen koennen, welche Hausaufgaben offen sind.
 // Alles liegt verschluesselt - derselbe Schluessel wie beim Stundenplan.
-import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=10';
+import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=11';
 
 const DB_NAME = 'stundenplan';
 const LADEN = 'werte';
@@ -81,7 +81,8 @@ export const LEER = () => ({
   notizen: {},   // "datum|von|kurs" -> { aufgabe, notiz, erledigt }
   noten: {},     // "DE1" -> [ { id, art, punkte, datum, titel } ]
   klausuren: [], // { id, kurs, datum, thema }
-  fehlzeiten: [] // { id, datum, art, stunden, entschuldigt, grund }
+  fehlzeiten: [], // { id, datum, art, stunden, entschuldigt, grund }
+  lernen: {} // "klausurId|datum" -> true, wenn die Lernetappe erledigt ist
 });
 
 /** Sorgt dafuer, dass alle Felder vorhanden sind - auch nach einem Update. */

@@ -1,9 +1,9 @@
 // Die drei Bereiche neben dem Stundenplan: Aufgaben, Noten, Mehr.
 // Bekommt beim Start alles Noetige von app.js uebergeben - so gibt es
 // keine gegenseitigen Importe zwischen den Dateien.
-import { KURSE } from './shared/konfiguration.mjs?v=10';
-import { symbolFuer } from './symbole.mjs?v=10';
-import { neueId } from './daten.mjs?v=10';
+import { KURSE } from './shared/konfiguration.mjs?v=11';
+import { symbolFuer } from './symbole.mjs?v=11';
+import { neueId } from './daten.mjs?v=11';
 
 let A = null; // die von app.js gereichten Hilfsmittel
 export function initBereiche(api) {
@@ -247,18 +247,145 @@ function aufgabenZeile(aufgabe) {
 function klausurKarte(klausur) {
   const kurs = kursVon(klausur.kurs);
   const abstand = tageBis(klausur.datum);
+
+  const huelle = document.createElement('div');
+  huelle.className = `klausur-huelle${abstand >= 0 && abstand <= 7 ? ' nah' : ''}`;
+  huelle.style.setProperty('--fach-farbe', farbeVon(kurs?.farbe));
+
   const el = document.createElement('button');
   el.type = 'button';
-  el.className = `klausur-karte${abstand < 0 ? ' vergangen' : ''}${abstand >= 0 && abstand <= 7 ? ' nah' : ''}`;
-  el.style.setProperty('--fach-farbe', farbeVon(kurs?.farbe));
+  el.className = `klausur-karte${abstand < 0 ? ' vergangen' : ''}`;
   el.innerHTML =
     `<div class="klausur-tage">${abstand < 0 ? '–' : abstand}</div>` +
     `<div class="klausur-mitte">` +
     `<div class="klausur-fach">${symbolFuer(kurs?.fach ?? 'Termin', { groesse: 14, strich: 2 })}${kurs?.fach ?? klausur.kurs}</div>` +
     `<div class="klausur-info">${datumText(klausur.datum)} · ${restText(abstand)}${klausur.thema ? ` · ${klausur.thema}` : ''}</div>` +
-    `</div>`;
+    `</div>` +
+    `<span class="klausur-stift" aria-hidden="true">›</span>`;
   el.addEventListener('click', () => klausurBearbeiten(klausur));
-  return el;
+  huelle.append(el);
+
+  // Lernplan: Etappen bis zur Klausur, abhakbar.
+  const plan = lernplanFuer(klausur);
+  if (plan.length) {
+    const liste = document.createElement('div');
+    liste.className = 'lernplan';
+
+    const kopf = document.createElement('p');
+    const offen = plan.filter((e) => !e.erledigt).length;
+    kopf.className = 'lernplan-kopf';
+    kopf.textContent = offen ? `Lernplan · ${offen} von ${plan.length} offen` : 'Lernplan · geschafft';
+    liste.append(kopf);
+
+    for (const etappe of plan) {
+      const zeile = document.createElement('button');
+      zeile.type = 'button';
+      zeile.className = `lern-etappe${etappe.erledigt ? ' erledigt' : ''}${etappe.datum === heute() ? ' heute' : ''}`;
+      zeile.innerHTML =
+        `<span class="lern-haken">${etappe.erledigt ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>' : ''}</span>` +
+        `<span class="lern-text">${etappe.text}<span class="lern-datum">${datumText(etappe.datum)}</span></span>`;
+      zeile.addEventListener('click', async () => {
+        const daten = A.zustand.meineDaten;
+        daten.lernen ??= {};
+        if (etappe.erledigt) delete daten.lernen[etappe.schluessel];
+        else daten.lernen[etappe.schluessel] = true;
+        await A.speichern();
+        A.zeichnen();
+      });
+      liste.append(zeile);
+    }
+    huelle.append(liste);
+  }
+
+  return huelle;
+}
+
+/**
+ * Lernplan zu einer Klausur: verteilt Etappen rueckwaerts auf die Tage davor.
+ * Bevorzugt werden Tage mit viel Zeit - Wochenenden, schulfreie Tage und
+ * Schultage mit fruehem Schluss. Tage mit einer anderen Klausur fallen raus,
+ * der Vortag ist immer dabei (Wiederholung).
+ */
+const ETAPPEN = [
+  'Überblick verschaffen, Material sortieren',
+  'Erstes Hauptthema durcharbeiten',
+  'Zweites Hauptthema durcharbeiten',
+  'Übungsaufgaben rechnen',
+  'Alles wiederholen, Lücken schließen',
+];
+
+export function lernplanFuer(klausur) {
+  const abstandKlausur = tageBis(klausur.datum);
+  if (abstandKlausur < 0) return [];
+
+  const kandidaten = [];
+  for (let vorher = 12; vorher >= 1; vorher--) {
+    const d = new Date(`${klausur.datum}T12:00:00`);
+    d.setDate(d.getDate() - vorher);
+    const datum = A.iso(d);
+    if (tageBis(datum) < 0) continue; // Vergangenes bringt nichts mehr
+
+    // An einem Tag mit anderer Klausur wird nicht fuer diese gelernt.
+    if (A.zustand.meineDaten.klausuren.some((k) => k.datum === datum && k.id !== klausur.id)) continue;
+
+    const tag = A.alleTage().find((t) => t.datum === datum);
+    const wochenende = d.getDay() === 0 || d.getDay() === 6;
+    const gueltig = (tag?.stunden ?? []).filter((x) => x.status !== 'CANCELLED' && x.kurs);
+
+    let zeit;
+    if (wochenende || !gueltig.length) zeit = 3;                        // ganzer Tag frei
+    else if (Math.max(...gueltig.map((x) => A.minuten(x.bis))) <= 775) zeit = 2; // Schluss bis 12:55
+    else zeit = 1;                                                      // langer Schultag
+
+    kandidaten.push({ datum, zeit, vorher });
+  }
+
+  if (!kandidaten.length) return [];
+
+  // Wie viele Etappen passen? Bei kurzem Vorlauf weniger.
+  const anzahl = Math.min(ETAPPEN.length, Math.max(2, Math.min(kandidaten.length, Math.ceil(abstandKlausur / 2))));
+
+  // Vortag setzen, Rest nach verfuegbarer Zeit (bei Gleichstand naeher dran zuerst).
+  const vortag = kandidaten.find((k) => k.vorher === 1);
+  const uebrige = kandidaten
+    .filter((k) => k !== vortag)
+    .sort((a, b) => b.zeit - a.zeit || a.vorher - b.vorher);
+
+  const gewaehlt = [...(vortag ? [vortag] : []), ...uebrige.slice(0, anzahl - (vortag ? 1 : 0))]
+    .sort((a, b) => a.datum.localeCompare(b.datum));
+
+  // Die Wiederholung gehoert ans Ende, der Rest der Reihe nach.
+  return gewaehlt.map((k, i) => ({
+    datum: k.datum,
+    schluessel: `${klausur.id}|${k.datum}`,
+    text: i === gewaehlt.length - 1 ? ETAPPEN[ETAPPEN.length - 1] : ETAPPEN[Math.min(i, ETAPPEN.length - 2)],
+    erledigt: !!A.zustand.meineDaten.lernen?.[`${klausur.id}|${k.datum}`],
+  }));
+}
+
+/** Alle Lernetappen fuer ein bestimmtes Datum - fuer Aufgabenliste und Push. */
+export function lernenAm(datum) {
+  return A.zustand.meineDaten.klausuren
+    .flatMap((k) => lernplanFuer(k).map((e) => ({ ...e, klausur: k })))
+    .filter((e) => e.datum === datum && !e.erledigt);
+}
+
+/**
+ * Flache Liste der anstehenden Lernetappen je Datum.
+ * Wird beim Speichern mit abgelegt, damit der Hintergrunddienst sie
+ * fuer die Abend- und Morgenmeldung lesen kann - der kann den Lernplan
+ * nicht selbst ausrechnen, weil ihm der Stundenplan fehlt.
+ */
+export function lernVorschau() {
+  const vorschau = {};
+  for (const klausur of A.zustand.meineDaten.klausuren) {
+    const kurs = kursVon(klausur.kurs);
+    for (const etappe of lernplanFuer(klausur)) {
+      if (etappe.erledigt) continue;
+      (vorschau[etappe.datum] ??= []).push(`${kurs?.fach ?? klausur.kurs}: ${etappe.text}`);
+    }
+  }
+  return vorschau;
 }
 
 function klausurBearbeiten(klausur = null) {

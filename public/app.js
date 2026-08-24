@@ -4,8 +4,8 @@ import {
   DOPPELBLOECKE,
   VAPID_OEFFENTLICH,
   DATEN_URL,
-} from './shared/konfiguration.mjs?v=10';
-import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=10';
+} from './shared/konfiguration.mjs?v=11';
+import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=11';
 import {
   schluesselSichern,
   schluesselLaden,
@@ -13,8 +13,8 @@ import {
   ladeMeineDaten,
   speichereMeineDaten,
   LEER,
-} from './daten.mjs?v=10';
-import { symbolFuer } from './symbole.mjs?v=10';
+} from './daten.mjs?v=11';
+import { symbolFuer } from './symbole.mjs?v=11';
 import {
   initBereiche,
   zeichneAufgaben,
@@ -23,10 +23,12 @@ import {
   schliesseEingabe,
   eingabeOffen,
   offeneAufgaben,
-} from './bereiche.mjs?v=10';
+  lernVorschau,
+  lernenAm,
+} from './bereiche.mjs?v=11';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 10;
+const APP_VERSION = 11;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -145,7 +147,11 @@ async function ladePlan({ frisch = false, leise = false } = {}) {
   }
 }
 
-const speichern = () => speichereMeineDaten(zustand.meineDaten, schluessel);
+const speichern = () => {
+  // Abgeleitete Kurzfassung fuer den Hintergrunddienst mit ablegen.
+  zustand.meineDaten.lernVorschau = lernVorschau();
+  return speichereMeineDaten(zustand.meineDaten, schluessel);
+};
 
 // ------------------------------------------------------------- Hilfsmittel
 
@@ -257,8 +263,10 @@ function zeichneKopf() {
   $('aktualisieren').hidden = !planTab;
 
   if (!planTab) {
+    $('tagesFortschritt').hidden = true;
     const titel = { aufgaben: 'Aufgaben', noten: 'Noten', mehr: 'Mehr' }[zustand.tab];
-    const offen = zustand.tab === 'aufgaben' ? offeneAufgaben().length : 0;
+    const offen =
+      zustand.tab === 'aufgaben' ? offeneAufgaben().length + lernenAm(iso(new Date())).length : 0;
     $('kopfDatum').textContent = 'Stundenplan';
     $('kopfTitel').textContent = titel;
     $('kopfInfo').textContent =
@@ -297,6 +305,43 @@ function zeichneKopf() {
   $('ansichtWoche').classList.toggle('aktiv', wochenModus);
   $('ansichtTag').setAttribute('aria-selected', String(!wochenModus));
   $('ansichtWoche').setAttribute('aria-selected', String(wochenModus));
+}
+
+/**
+ * Feiner Balken im Kopf: wie viel vom Schultag ist geschafft?
+ * Nur fuer heute und nur in der Tagesansicht.
+ */
+function zeichneFortschritt(tag, istHeute, jetztMin) {
+  const kasten = $('tagesFortschritt');
+  const gueltig = (tag?.stunden ?? []).filter((s) => !istEntfall(s));
+
+  if (!istHeute || zustand.ansicht !== 'tag' || !gueltig.length) {
+    kasten.hidden = true;
+    return;
+  }
+
+  const start = Math.min(...gueltig.map((s) => minuten(s.von)));
+  const ende = Math.max(...gueltig.map((s) => minuten(s.bis)));
+  const anteil = Math.max(0, Math.min(1, (jetztMin - start) / (ende - start)));
+
+  const restMinuten = ende - jetztMin;
+  const stunden = Math.floor(restMinuten / 60);
+  const minutenRest = restMinuten % 60;
+
+  let text;
+  if (jetztMin < start) {
+    const bis = start - jetztMin;
+    text = bis >= 60 ? `Beginnt in ${Math.floor(bis / 60)} Std ${bis % 60} Min` : `Beginnt in ${bis} Min`;
+  } else if (jetztMin >= ende) {
+    text = 'Geschafft';
+  } else {
+    text = stunden ? `noch ${stunden} Std ${minutenRest} Min` : `noch ${minutenRest} Min`;
+  }
+
+  kasten.hidden = false;
+  kasten.classList.toggle('fertig', jetztMin >= ende);
+  $('tfFuellung').style.width = `${Math.round(anteil * 100)}%`;
+  $('tfText').textContent = text;
 }
 
 function zeichneTagesleiste() {
@@ -452,6 +497,8 @@ function zeichneTag(ziel) {
   const jetzt = new Date();
   const jetztMin = jetzt.getHours() * 60 + jetzt.getMinutes();
 
+  zeichneFortschritt(tag, istHeute, jetztMin);
+
   if (!tag) {
     ziel.append(leerHinweis('Kein Plan', 'Für diesen Tag liegen keine Daten vor.'));
     return;
@@ -566,6 +613,7 @@ const trenne = (name) => TRENNUNGEN[name] ?? name;
 function zeichneWoche(ziel) {
   ziel.textContent = '';
   ziel.classList.add('woche-modus');
+  $('tagesFortschritt').hidden = true;
 
   const offen = (zustand.plan?.aenderungen ?? []).filter((a) => !zustand.gelesen.has(kennung(a)));
   if (offen.length) ziel.append(banner(offen));
@@ -924,7 +972,8 @@ function zeichnen() {
     zeichneTag(inhalt);
   }
 
-  const offen = offeneAufgaben().length;
+  // Lernetappen von heute zaehlen als offene Aufgaben mit.
+  const offen = offeneAufgaben().length + lernenAm(iso(new Date())).length;
   $('tabPunktAufgaben').hidden = offen === 0;
 
   [...inhalt.children].forEach((el, i) => el.style.setProperty('--i', i));
@@ -981,6 +1030,7 @@ async function starten({ frisch = false, leise = false } = {}) {
 initBereiche({
   zustand,
   iso,
+  minuten,
   alleTage,
   notizId,
   speichern,

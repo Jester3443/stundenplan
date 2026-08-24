@@ -1139,13 +1139,7 @@ body {
 
 .klausur-liste { display: flex; flex-direction: column; gap: 8px; }
 
-.klausur-karte {
-  appearance: none; border: none; font: inherit; text-align: left;
-  display: grid;
-  grid-template-columns: 52px 1fr;
-  gap: 13px;
-  align-items: center;
-  padding: 13px 15px;
+.klausur-huelle {
   border-radius: var(--radius);
   background: linear-gradient(
     150deg,
@@ -1153,11 +1147,24 @@ body {
     color-mix(in srgb, var(--fach-farbe) 5%, var(--flaeche))
   );
   border: 0.5px solid color-mix(in srgb, var(--fach-farbe) 26%, transparent);
+  overflow: hidden;
+}
+.klausur-huelle.nah { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--fach-farbe) 60%, transparent); }
+
+.klausur-karte {
+  appearance: none; border: none; font: inherit; text-align: left;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 52px 1fr auto;
+  gap: 13px;
+  align-items: center;
+  padding: 13px 15px;
+  background: transparent;
   color: var(--text);
   cursor: pointer;
 }
-.klausur-karte.nah { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--fach-farbe) 60%, transparent); }
 .klausur-karte.vergangen { opacity: 0.45; }
+.klausur-stift { color: var(--text-sehr-leise); font-size: 20px; }
 
 .klausur-tage {
   font-size: 30px;
@@ -1324,3 +1331,78 @@ body {
 .raster-kopf, .zelle { position: relative; z-index: 1; }
 .zelle .z-symbol { color: var(--fach-farbe); display: flex; opacity: 0.9; }
 .zelle.z-entfall .z-symbol { color: var(--text-sehr-leise); }
+
+/* ====================================================== Tages-Fortschritt */
+
+.tagesfortschritt {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 9px;
+}
+.tf-balken {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--trennlinie);
+  overflow: hidden;
+}
+.tf-fuellung {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--akzent), color-mix(in srgb, var(--akzent) 55%, var(--fl-tuerkis)));
+  transition: width 0.6s ease;
+}
+.tf-text {
+  flex: none;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-leise);
+  font-variant-numeric: tabular-nums;
+}
+.tagesfortschritt.fertig .tf-fuellung { background: var(--fl-gruen); }
+.tagesfortschritt.fertig .tf-text { color: var(--fl-gruen); }
+
+/* ============================================================== Lernplan */
+
+.lernplan {
+  padding: 2px 15px 12px;
+  border-top: 0.5px solid color-mix(in srgb, var(--fach-farbe) 22%, transparent);
+  margin-top: 2px;
+}
+.lernplan-kopf {
+  margin: 10px 0 7px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--fach-farbe);
+}
+
+.lern-etappe {
+  appearance: none; border: none; background: transparent; font: inherit;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 7px 0;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.lern-haken {
+  width: 19px; height: 19px;
+  margin-top: 1px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--fach-farbe) 50%, transparent);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff;
+}
+.lern-haken svg { width: 11px; height: 11px; }
+.lern-etappe.erledigt .lern-haken { background: var(--fach-farbe); border-color: var(--fach-farbe); }
+.lern-etappe.erledigt .lern-text { text-decoration: line-through; color: var(--text-sehr-leise); }
+
+.lern-text { font-size: 14px; line-height: 1.35; display: flex; flex-direction: column; gap: 1px; }
+.lern-datum { font-size: 12px; color: var(--text-sehr-leise); }
+.lern-etappe.heute .lern-datum { color: var(--fach-farbe); font-weight: 700; }
