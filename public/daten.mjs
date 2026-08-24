@@ -5,7 +5,7 @@
 // Worker NICHT zugreifen. Er muss aber abends beim Eintreffen der
 // Push-Nachricht nachsehen koennen, welche Hausaufgaben offen sind.
 // Alles liegt verschluesselt - derselbe Schluessel wie beim Stundenplan.
-import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=9';
+import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=10';
 
 const DB_NAME = 'stundenplan';
 const LADEN = 'werte';

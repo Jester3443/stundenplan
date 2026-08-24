@@ -1318,6 +1318,9 @@ body {
   background: color-mix(in srgb, var(--akzent) 11%, transparent);
   pointer-events: none;
   margin: -4px -3px;
+  z-index: 0;
 }
+/* Felder liegen immer ueber der Bahn */
+.raster-kopf, .zelle { position: relative; z-index: 1; }
 .zelle .z-symbol { color: var(--fach-farbe); display: flex; opacity: 0.9; }
 .zelle.z-entfall .z-symbol { color: var(--text-sehr-leise); }

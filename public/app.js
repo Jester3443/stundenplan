@@ -4,8 +4,8 @@ import {
   DOPPELBLOECKE,
   VAPID_OEFFENTLICH,
   DATEN_URL,
-} from './shared/konfiguration.mjs?v=9';
-import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=9';
+} from './shared/konfiguration.mjs?v=10';
+import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=10';
 import {
   schluesselSichern,
   schluesselLaden,
@@ -13,8 +13,8 @@ import {
   ladeMeineDaten,
   speichereMeineDaten,
   LEER,
-} from './daten.mjs?v=9';
-import { symbolFuer } from './symbole.mjs?v=9';
+} from './daten.mjs?v=10';
+import { symbolFuer } from './symbole.mjs?v=10';
 import {
   initBereiche,
   zeichneAufgaben,
@@ -23,10 +23,10 @@ import {
   schliesseEingabe,
   eingabeOffen,
   offeneAufgaben,
-} from './bereiche.mjs?v=9';
+} from './bereiche.mjs?v=10';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 9;
+const APP_VERSION = 10;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -187,6 +187,36 @@ const hatEigenes = (s) => {
   return { aufgabe: !!e.aufgabe, notiz: !!e.notiz };
 };
 const hatLehrerAufgabe = (s) => (s.aufgaben ?? []).some((a) => a.text || a.anmerkung);
+
+/**
+ * Untis zerlegt ganztaegige Veranstaltungen (z. B. eine Studienwoche) in
+ * mehrere Bloecke pro Tag. Aufeinanderfolgende Termine mit gleichem Namen
+ * werden hier zu einem Eintrag zusammengezogen - sonst steht viermal
+ * dasselbe untereinander.
+ */
+function fasseTermineZusammen(stunden) {
+  const kursstunden = stunden.filter((s) => s.kurs);
+  const termine = new Map();
+
+  // Alle Termine gleichen Namens zu EINEM Eintrag ueber den ganzen Tag -
+  // nicht nur direkte Nachbarn, denn zwischen den Bloecken stehen die
+  // entfallenen Kursstunden.
+  for (const s of stunden.filter((x) => !x.kurs)) {
+    const vorhanden = termine.get(s.fachName);
+    if (!vorhanden) {
+      termine.set(s.fachName, { ...s });
+      continue;
+    }
+    if (s.von < vorhanden.von) vorhanden.von = s.von;
+    if (s.bis > vorhanden.bis) vorhanden.bis = s.bis;
+  }
+
+  for (const termin of termine.values()) {
+    termin.block = stundenBezeichnung(termin.von, termin.bis);
+  }
+
+  return [...kursstunden, ...termine.values()].sort((a, b) => a.von.localeCompare(b.von));
+}
 
 /** Wann der Tag wirklich beginnt und endet - entfallene Randstunden zählen nicht. */
 function tagesInfo(tag) {
@@ -436,7 +466,7 @@ function zeichneTag(ziel) {
     return;
   }
 
-  const stunden = [...tag.stunden].sort((a, b) => a.von.localeCompare(b.von));
+  const stunden = fasseTermineZusammen(tag.stunden);
 
   const hero = istHeute ? heroKarte(stunden, jetztMin) : null;
   if (hero) ziel.append(hero);
@@ -571,17 +601,28 @@ function zeichneWoche(ziel) {
   const jetztMin = jetzt.getHours() * 60 + jetzt.getMinutes();
   const heuteSpalte = woche.tage.findIndex((t) => t.datum === heute);
 
+  // WICHTIG: Jedes Feld bekommt seine Position ausdruecklich zugewiesen.
+  // Die farbige Heute-Bahn belegt sonst eine Zelle im automatischen Fluss
+  // und schiebt alle folgenden Felder um eins weiter - dann landet Freitag
+  // in der naechsten Zeile ganz links.
+  const setzePlatz = (el, spalte, zeile, zeilenSpanne = 1) => {
+    el.style.gridColumn = String(spalte);
+    el.style.gridRow = zeilenSpanne === 1 ? String(zeile) : `${zeile} / span ${zeilenSpanne}`;
+  };
+
   // Farbige Bahn hinter der heutigen Spalte - hebt den Tag klar hervor.
   if (heuteSpalte >= 0) {
     const bahn = document.createElement('div');
     bahn.className = 'heute-bahn';
-    bahn.style.gridColumn = String(heuteSpalte + 2);
-    bahn.style.gridRow = `1 / span ${zeilen.length + 1}`;
+    setzePlatz(bahn, heuteSpalte + 2, 1, zeilen.length + 1);
     raster.append(bahn);
   }
 
-  raster.append(document.createElement('div'));
-  for (const tag of woche.tage) {
+  const ecke = document.createElement('div');
+  setzePlatz(ecke, 1, 1);
+  raster.append(ecke);
+
+  woche.tage.forEach((tag, tagIndex) => {
     const kopf = document.createElement('button');
     kopf.type = 'button';
     kopf.className = 'raster-kopf';
@@ -592,24 +633,27 @@ function zeichneWoche(ziel) {
       zustand.gewaehlt = tag.datum;
       setzeAnsicht('tag');
     });
+    setzePlatz(kopf, tagIndex + 2, 1);
     raster.append(kopf);
-  }
+  });
 
-  for (const zeile of zeilen) {
+  zeilen.forEach((zeile, zeilenIndex) => {
     const zeit = document.createElement('div');
     zeit.className = 'raster-zeit';
     zeit.innerHTML = `<span class="rz-block">${zeile.name}</span><span class="rz-uhr">${zeile.von}</span>`;
+    setzePlatz(zeit, 1, zeilenIndex + 2);
     raster.append(zeit);
 
-    for (const tag of woche.tage) {
+    woche.tage.forEach((tag, tagIndex) => {
       const s = kursstundenVon(tag).find((x) => blockIndex(x) === zeile.index);
       const zelle = document.createElement(s ? 'button' : 'div');
       zelle.className = 'zelle';
       if (tag.datum === heute) zelle.classList.add('heute-spalte');
+      setzePlatz(zelle, tagIndex + 2, zeilenIndex + 2);
       if (!s) {
         zelle.classList.add('frei');
         raster.append(zelle);
-        continue;
+        return;
       }
       zelle.type = 'button';
       zelle.style.setProperty('--fach-farbe', farbeVon(s.farbe));
@@ -628,22 +672,37 @@ function zeichneWoche(ziel) {
         (hatLehrerAufgabe(s) || eigenes.aufgabe || eigenes.notiz ? '<span class="z-punkt"></span>' : '');
       zelle.addEventListener('click', () => oeffneStunde(s));
       raster.append(zelle);
-    }
-  }
+    });
+  });
 
   ziel.append(raster);
 
-  const termine = woche.tage.flatMap((tag) => termineVon(tag));
-  if (termine.length) {
+  // Termine je Name buendeln: "Studienwoche 12" steht in Untis vierzehnmal
+  // in der Woche - hier wird daraus ein Eintrag mit den betroffenen Tagen.
+  const gebuendelt = new Map();
+  for (const tag of woche.tage) {
+    for (const termin of fasseTermineZusammen(termineVon(tag))) {
+      if (!gebuendelt.has(termin.fachName)) {
+        gebuendelt.set(termin.fachName, { tage: [], erster: termin });
+      }
+      const eintrag = gebuendelt.get(termin.fachName);
+      if (!eintrag.tage.includes(tag.datum)) eintrag.tage.push(tag.datum);
+    }
+  }
+
+  if (gebuendelt.size) {
     const leiste = document.createElement('div');
     leiste.className = 'termin-leiste';
-    for (const termin of termine) {
+    for (const [name, { tage, erster }] of gebuendelt) {
       const chip = document.createElement('button');
       chip.type = 'button';
       chip.className = 'termin-chip';
-      const d = alsDatum(termin.datum);
-      chip.textContent = `${TAGE_KURZ[d.getDay()]} · ${termin.fachName}`;
-      chip.addEventListener('click', () => oeffneStunde(termin));
+      const tageText =
+        tage.length >= 5
+          ? 'Ganze Woche'
+          : tage.map((d) => TAGE_KURZ[alsDatum(d).getDay()]).join(' ');
+      chip.textContent = `${tageText} · ${name}`;
+      chip.addEventListener('click', () => oeffneStunde(erster));
       leiste.append(chip);
     }
     ziel.append(leiste);
