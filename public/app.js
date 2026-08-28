@@ -4,8 +4,8 @@ import {
   DOPPELBLOECKE,
   VAPID_OEFFENTLICH,
   DATEN_URL,
-} from './shared/konfiguration.mjs?v=11';
-import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=11';
+} from './shared/konfiguration.mjs?v=12';
+import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=12';
 import {
   schluesselSichern,
   schluesselLaden,
@@ -13,8 +13,8 @@ import {
   ladeMeineDaten,
   speichereMeineDaten,
   LEER,
-} from './daten.mjs?v=11';
-import { symbolFuer } from './symbole.mjs?v=11';
+} from './daten.mjs?v=12';
+import { symbolFuer } from './symbole.mjs?v=12';
 import {
   initBereiche,
   zeichneAufgaben,
@@ -25,10 +25,11 @@ import {
   offeneAufgaben,
   lernVorschau,
   lernenAm,
-} from './bereiche.mjs?v=11';
+  aktualisiereStundenZaehler,
+} from './bereiche.mjs?v=12';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 11;
+const APP_VERSION = 12;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -1009,6 +1010,8 @@ async function starten({ frisch = false, leise = false } = {}) {
     const plan = await ladePlan({ frisch, leise });
     if (plan) zustand.plan = plan;
     zustand.meineDaten = await ladeMeineDaten(schluessel);
+    // Vergangene Schultage in die Stundenstatistik aufnehmen (Basis der Fehlquote).
+    if (aktualisiereStundenZaehler() > 0) await speichern();
     zustand.gewaehlt ??= startTag();
     if (!tagFinden(zustand.gewaehlt)) zustand.gewaehlt = startTag();
     zeichnen();

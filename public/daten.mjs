@@ -5,7 +5,7 @@
 // Worker NICHT zugreifen. Er muss aber abends beim Eintreffen der
 // Push-Nachricht nachsehen koennen, welche Hausaufgaben offen sind.
 // Alles liegt verschluesselt - derselbe Schluessel wie beim Stundenplan.
-import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=11';
+import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=12';
 
 const DB_NAME = 'stundenplan';
 const LADEN = 'werte';
@@ -82,7 +82,11 @@ export const LEER = () => ({
   noten: {},     // "DE1" -> [ { id, art, punkte, datum, titel } ]
   klausuren: [], // { id, kurs, datum, thema }
   fehlzeiten: [], // { id, datum, art, stunden, entschuldigt, grund }
-  lernen: {} // "klausurId|datum" -> true, wenn die Lernetappe erledigt ist
+  lernen: {}, // "klausurId|datum" -> true, wenn die Lernetappe erledigt ist
+  // Laufende Statistik: wie viel Unterricht hat je Fach stattgefunden?
+  // Der Plan reicht nur wenige Wochen zurueck, deshalb zaehlt die App mit.
+  stundenSumme: {}, // "DE1" -> Anzahl stattgefundener Stunden
+  gezaehlteTage: {} // "2026-08-17" -> true, damit kein Tag doppelt zaehlt
 });
 
 /** Sorgt dafuer, dass alle Felder vorhanden sind - auch nach einem Update. */

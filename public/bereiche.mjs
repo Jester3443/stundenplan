@@ -1,9 +1,9 @@
 // Die drei Bereiche neben dem Stundenplan: Aufgaben, Noten, Mehr.
 // Bekommt beim Start alles Noetige von app.js uebergeben - so gibt es
 // keine gegenseitigen Importe zwischen den Dateien.
-import { KURSE } from './shared/konfiguration.mjs?v=11';
-import { symbolFuer } from './symbole.mjs?v=11';
-import { neueId } from './daten.mjs?v=11';
+import { KURSE } from './shared/konfiguration.mjs?v=12';
+import { symbolFuer } from './symbole.mjs?v=12';
+import { neueId } from './daten.mjs?v=12';
 
 let A = null; // die von app.js gereichten Hilfsmittel
 export function initBereiche(api) {
@@ -78,6 +78,62 @@ export function oeffneEingabe({ titel, unterzeile = '', felder, beimSichern, bei
       continue;
     }
 
+    // Stundenauswahl: zeigt die Stunden des gewaehlten Tages zum Ankreuzen
+    // und aktualisiert sich, wenn das Datum geaendert wird.
+    if (feld.typ === 'stunden') {
+      const box = document.createElement('div');
+      box.className = 'stunden-auswahl';
+      box.id = `eingabe_${feld.name}`;
+
+      const fuellen = (datum) => {
+        box.textContent = '';
+        const tag = A.alleTage().find((t) => t.datum === datum);
+        const stunden = (tag?.stunden ?? []).filter((x) => x.kurs && x.status !== 'CANCELLED');
+
+        if (!stunden.length) {
+          const hinweis = document.createElement('p');
+          hinweis.className = 'stunden-leer';
+          hinweis.textContent = tag
+            ? 'An diesem Tag hattest du keinen Unterricht.'
+            : 'Für diesen Tag liegt kein Plan mehr vor – trag die Fehlzeit ohne Fachbezug ein.';
+          box.append(hinweis);
+          return;
+        }
+
+        const alle = document.createElement('button');
+        alle.type = 'button';
+        alle.className = 'stunden-alle';
+        alle.textContent = 'Ganzer Tag';
+        alle.addEventListener('click', () => {
+          const fehlt = [...box.querySelectorAll('.stunden-knopf')].some((k) => !k.classList.contains('aktiv'));
+          for (const k of box.querySelectorAll('.stunden-knopf')) k.classList.toggle('aktiv', fehlt);
+        });
+        box.append(alle);
+
+        for (const st of stunden) {
+          const knopf = document.createElement('button');
+          knopf.type = 'button';
+          const schonGewaehlt = (feld.wert ?? []).some((w) => w.von === st.von && w.kurs === st.kurs);
+          knopf.className = `stunden-knopf${schonGewaehlt ? ' aktiv' : ''}`;
+          knopf.style.setProperty('--fach-farbe', farbeVon(st.farbe));
+          knopf.dataset.kurs = st.kurs;
+          knopf.dataset.von = st.von;
+          knopf.dataset.bis = st.bis;
+          knopf.innerHTML =
+            `<span class="sk-block">${st.block}</span><span class="sk-fach">${st.fachName}</span>`;
+          knopf.addEventListener('click', () => knopf.classList.toggle('aktiv'));
+          box.append(knopf);
+        }
+      };
+
+      const datumsFeld = $('eingabe_datum');
+      fuellen(datumsFeld?.value || heute());
+      datumsFeld?.addEventListener('change', () => fuellen(datumsFeld.value));
+
+      behaelter.append(box);
+      continue;
+    }
+
     const eingabe = document.createElement('input');
     eingabe.id = `eingabe_${feld.name}`;
     eingabe.className = 'notiz-feld';
@@ -110,10 +166,17 @@ export function schliesseEingabe({ sichern = false, loeschen = false } = {}) {
     const werte = {};
     for (const feld of felder) {
       const el = $(`eingabe_${feld.name}`);
-      werte[feld.name] =
-        feld.typ === 'auswahl'
-          ? el.querySelector('.auswahl-knopf.aktiv')?.dataset.wert ?? feld.wert
-          : el.value.trim();
+      if (feld.typ === 'auswahl') {
+        werte[feld.name] = el.querySelector('.auswahl-knopf.aktiv')?.dataset.wert ?? feld.wert;
+      } else if (feld.typ === 'stunden') {
+        werte[feld.name] = [...el.querySelectorAll('.stunden-knopf.aktiv')].map((k) => ({
+          kurs: k.dataset.kurs,
+          von: k.dataset.von,
+          bis: k.dataset.bis,
+        }));
+      } else {
+        werte[feld.name] = el.value.trim();
+      }
     }
     // Pflichtfelder pruefen - lieber offen lassen als Unsinn speichern.
     const fehlt = felder.find((f) => f.pflicht && !werte[f.name]);
@@ -632,6 +695,99 @@ export function zeichneNoten(ziel) {
   ziel.append(fuss);
 }
 
+// ============================================ Fehlzeiten-Auswertung
+
+/**
+ * Schreibt mit, wie viel Unterricht je Fach tatsaechlich stattgefunden hat.
+ * Wird bei jedem Start aufgerufen und zaehlt jeden vergangenen Schultag
+ * genau einmal - der abgerufene Plan reicht nur wenige Wochen zurueck.
+ * Entfallene Stunden zaehlen nicht mit, die hatte ja niemand.
+ */
+export function aktualisiereStundenZaehler() {
+  const daten = A.zustand.meineDaten;
+  daten.stundenSumme ??= {};
+  daten.gezaehlteTage ??= {};
+
+  let neueTage = 0;
+  for (const tag of A.alleTage()) {
+    if (tag.datum >= heute()) continue;            // heute erst morgen zaehlen
+    if (daten.gezaehlteTage[tag.datum]) continue;  // schon erfasst
+    if (!tag.stunden.length) continue;             // kein Plan vorhanden
+
+    for (const s of tag.stunden) {
+      if (!s.kurs || s.status === 'CANCELLED') continue;
+      daten.stundenSumme[s.kurs] = (daten.stundenSumme[s.kurs] ?? 0) + 1;
+    }
+    daten.gezaehlteTage[tag.datum] = true;
+    neueTage++;
+  }
+  return neueTage;
+}
+
+/** Wie viele Stunden hat Jasper in einem Fach verpasst? */
+function verpasstIn(kuerzel) {
+  let gesamt = 0;
+  let unentschuldigt = 0;
+  for (const f of A.zustand.meineDaten.fehlzeiten) {
+    for (const st of f.stunden ?? []) {
+      if (st.kurs !== kuerzel) continue;
+      gesamt++;
+      if (f.entschuldigt === 'nein') unentschuldigt++;
+    }
+  }
+  return { gesamt, unentschuldigt };
+}
+
+/**
+ * Einstufung der Fehlquote.
+ *
+ * WICHTIG: Niedersachsen kennt KEINE Prozentgrenze. § 7 Abs. 4 VO-GO stellt
+ * darauf ab, ob die Leistung ueberhaupt noch bewertet werden kann und ob das
+ * Versaeumnis selbst zu vertreten ist. Die Stufen hier sind deshalb eine
+ * Faustregel zur Selbsteinschaetzung - keine Rechtsgrundlage.
+ */
+export const STUFEN = [
+  { ab: 30, name: 'kritisch', farbe: 'rot' },
+  { ab: 20, name: 'hoch', farbe: 'orange' },
+  { ab: 10, name: 'erhöht', farbe: 'gelb' },
+  { ab: 0, name: 'unauffällig', farbe: 'gruen' },
+];
+
+/** Zu wenige Stunden fuer eine Aussage - dann bewusst KEINE Warnfarbe. */
+const NEUTRAL = { name: 'noch zu wenig Daten', farbe: 'neutral' };
+
+const MINDEST_STUNDEN = 5; // darunter ist eine Prozentangabe nicht aussagekraeftig
+
+export function fehlAuswertung() {
+  const daten = A.zustand.meineDaten;
+  const zeilen = [];
+
+  for (const kurs of KURSE) {
+    const stattgefunden = daten.stundenSumme?.[kurs.kuerzel] ?? 0;
+    const { gesamt, unentschuldigt } = verpasstIn(kurs.kuerzel);
+    if (!stattgefunden && !gesamt) continue;
+
+    const quote = stattgefunden ? (gesamt / stattgefunden) * 100 : null;
+    const belastbar = stattgefunden >= MINDEST_STUNDEN;
+
+    let stufe;
+    if (!belastbar) {
+      // Bei einer Handvoll Stunden sagt ein Prozentwert nichts aus -
+      // dann lieber ehrlich neutral bleiben als falschen Alarm auszuloesen.
+      stufe = NEUTRAL;
+    } else {
+      stufe = STUFEN.find((x) => quote >= x.ab) ?? STUFEN[STUFEN.length - 1];
+      // Unentschuldigtes Fehlen ist der eigentliche Risikofaktor - nie gruen.
+      if (unentschuldigt > 0 && stufe.farbe === 'gruen') stufe = STUFEN[2];
+    }
+
+    zeilen.push({ kurs, stattgefunden, verpasst: gesamt, unentschuldigt, quote, belastbar, stufe });
+  }
+
+  // Belastbare Werte zuerst, darin die hoechste Quote oben.
+  return zeilen.sort((a, b) => Number(b.belastbar) - Number(a.belastbar) || (b.quote ?? -1) - (a.quote ?? -1));
+}
+
 // ================================================================== MEHR
 
 function fehlzeitBearbeiten(eintrag = null) {
@@ -639,16 +795,7 @@ function fehlzeitBearbeiten(eintrag = null) {
     titel: eintrag ? 'Fehlzeit bearbeiten' : 'Fehlzeit eintragen',
     felder: [
       { name: 'datum', label: 'Datum', typ: 'datum', wert: eintrag?.datum ?? heute(), pflicht: true },
-      {
-        name: 'art',
-        label: 'Umfang',
-        typ: 'auswahl',
-        wert: eintrag?.art ?? 'ganztags',
-        optionen: [
-          { wert: 'ganztags', text: 'Ganzer Tag' },
-          { wert: 'stunden', text: 'Einzelne Stunden' },
-        ],
-      },
+      { name: 'stunden', label: 'Welche Stunden hast du verpasst?', typ: 'stunden', wert: eintrag?.stunden ?? [] },
       {
         name: 'entschuldigt',
         label: 'Status',
@@ -695,13 +842,56 @@ export function zeichneMehr(ziel) {
     `<div class="zaehler${offen ? ' warnung' : ''}"><span class="zaehler-zahl">${offen}</span><span class="zaehler-text">nicht entschuldigt</span></div>`;
   ziel.append(zaehler);
 
+  // --- Auswertung je Fach ---
+  const auswertung = fehlAuswertung();
+  if (auswertung.some((z) => z.verpasst > 0)) {
+    ziel.append(ueberschrift('Fehlquote je Fach'));
+
+    for (const z of auswertung) {
+      if (!z.verpasst) continue;
+      const karte = document.createElement('div');
+      karte.className = `fehlfach stufe-${z.stufe.farbe}`;
+      karte.style.setProperty('--fach-farbe', farbeVon(z.kurs.farbe));
+
+      const quoteText = z.belastbar ? `${z.quote.toFixed(0)} %` : `${z.verpasst} Std`;
+
+      karte.innerHTML =
+        `<div class="ff-kopf">` +
+        `<span class="ff-name">${symbolFuer(z.kurs.fach, { groesse: 15, strich: 1.9 })}${z.kurs.fach}</span>` +
+        `<span class="ff-quote">${quoteText}</span>` +
+        `</div>` +
+        `<div class="ff-balken"><div style="width:${z.belastbar ? Math.min(100, z.quote) : 0}%"></div></div>` +
+        `<div class="ff-fuss">` +
+        `<span class="ff-stufe">${z.stufe.name}</span>` +
+        `<span class="ff-zahlen">${z.verpasst} von ${z.stattgefunden} Std${z.unentschuldigt ? ` · ${z.unentschuldigt} unentschuldigt` : ''}</span>` +
+        `</div>`;
+      ziel.append(karte);
+    }
+
+    const erklaerung = document.createElement('p');
+    erklaerung.className = 'bereich-fuss';
+    erklaerung.textContent =
+      'Faustregel, keine Rechtsgrundlage: Niedersachsen kennt keine feste Prozentgrenze. ' +
+      'Nach § 7 Abs. 4 VO-GO zählt, ob deine Leistung noch bewertet werden kann und ob du das Fehlen selbst zu verantworten hast – ' +
+      'unentschuldigte Stunden wiegen deshalb schwerer als entschuldigte.';
+    ziel.append(erklaerung);
+  }
+
+  if (daten.fehlzeiten.length) ziel.append(ueberschrift('Einzelne Einträge'));
+
   for (const f of daten.fehlzeiten.slice(0, 20)) {
     const el = document.createElement('button');
     el.type = 'button';
     el.className = `fehlzeit${f.entschuldigt === 'nein' ? ' offen' : ''}`;
+    const faecher = [...new Set((f.stunden ?? []).map((st) => kursVon(st.kurs)?.fach ?? st.kurs))];
+    const beschreibung = faecher.length
+      ? `${(f.stunden ?? []).length} Std · ${faecher.join(', ')}`
+      : f.art === 'ganztags'
+        ? 'Ganzer Tag'
+        : 'Ohne Fachbezug';
     el.innerHTML =
       `<span class="fehlzeit-datum">${datumText(f.datum)}</span>` +
-      `<span class="fehlzeit-text">${f.art === 'ganztags' ? 'Ganzer Tag' : 'Einzelne Stunden'}${f.grund ? ` · ${f.grund}` : ''}</span>` +
+      `<span class="fehlzeit-text">${beschreibung}${f.grund ? ` · ${f.grund}` : ''}</span>` +
       `<span class="fehlzeit-marke">${f.entschuldigt === 'nein' ? 'offen' : '✓'}</span>`;
     el.addEventListener('click', () => fehlzeitBearbeiten(f));
     ziel.append(el);

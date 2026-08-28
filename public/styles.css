@@ -1406,3 +1406,79 @@ body {
 .lern-text { font-size: 14px; line-height: 1.35; display: flex; flex-direction: column; gap: 1px; }
 .lern-datum { font-size: 12px; color: var(--text-sehr-leise); }
 .lern-etappe.heute .lern-datum { color: var(--fach-farbe); font-weight: 700; }
+
+/* =============================================== Fehlquote und Auswahl */
+
+.fehlfach {
+  border-radius: var(--radius);
+  background: var(--flaeche);
+  border-left: 3px solid var(--stufe-farbe, var(--fl-grau));
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+.fehlfach.stufe-gruen   { --stufe-farbe: var(--fl-gruen); }
+.fehlfach.stufe-gelb    { --stufe-farbe: #FFD60A; }
+.fehlfach.stufe-orange  { --stufe-farbe: var(--fl-orange); }
+.fehlfach.stufe-rot     { --stufe-farbe: var(--fl-rot); }
+
+.ff-kopf { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.ff-name { display: flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 650; color: var(--fach-farbe); }
+.ff-quote {
+  font-size: 19px; font-weight: 750; color: var(--stufe-farbe);
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+}
+
+.ff-balken {
+  height: 5px;
+  margin: 9px 0 7px;
+  border-radius: 3px;
+  background: var(--trennlinie);
+  overflow: hidden;
+}
+.ff-balken > div { height: 100%; border-radius: 3px; background: var(--stufe-farbe); transition: width 0.5s ease; }
+
+.ff-fuss { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.ff-stufe {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--stufe-farbe);
+}
+.ff-zahlen { font-size: 12px; color: var(--text-leise); }
+
+/* Stundenauswahl im Eingabefenster */
+.stunden-auswahl { display: flex; flex-wrap: wrap; gap: 6px; }
+.stunden-leer { margin: 0; font-size: 14px; color: var(--text-leise); line-height: 1.4; }
+
+.stunden-alle {
+  appearance: none; border: none; font: inherit;
+  width: 100%;
+  padding: 9px;
+  border-radius: 10px;
+  background: var(--flaeche);
+  color: var(--akzent);
+  font-size: 14px; font-weight: 650;
+  cursor: pointer;
+}
+@media (prefers-color-scheme: light) { .stunden-alle { background: #F2F2F7; } }
+
+.stunden-knopf {
+  appearance: none; font: inherit;
+  flex: 1 1 calc(50% - 3px);
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: transparent;
+  border: 1.5px solid color-mix(in srgb, var(--fach-farbe) 35%, transparent);
+  color: var(--text-leise);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.stunden-knopf.aktiv {
+  background: color-mix(in srgb, var(--fach-farbe) 22%, transparent);
+  border-color: var(--fach-farbe);
+  color: var(--text);
+}
+.sk-block { font-size: 11px; font-weight: 700; color: var(--fach-farbe); }
+.sk-fach { font-size: 13px; font-weight: 600; }
+.fehlfach.stufe-neutral { --stufe-farbe: var(--fl-grau); }
+.fehlfach.stufe-neutral .ff-quote { color: var(--text-leise); }

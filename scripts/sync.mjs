@@ -135,11 +135,17 @@ const schuljahr = app?.currentSchoolYear
   : null;
 
 const wochen = [];
+// Zwei Wochen rueckwaerts mitnehmen: Die App zaehlt daraus mit, wie viele
+// Stunden je Fach tatsaechlich stattgefunden haben (Grundlage der Fehlquote).
+// Ohne Rueckblick gingen Tage verloren, wenn die App mal ein paar Tage
+// nicht geoeffnet wird.
+const WOCHEN_RUECKBLICK = 2;
 const start = montagVon(new Date());
+start.setDate(start.getDate() - WOCHEN_RUECKBLICK * 7);
 
 // Hausaufgaben der Lehrer fuer den gesamten Zeitraum in einem Rutsch holen.
 const ende = new Date(start);
-ende.setDate(ende.getDate() + WOCHEN_VORAUS * 7);
+ende.setDate(ende.getDate() + (WOCHEN_VORAUS + WOCHEN_RUECKBLICK) * 7);
 let hausaufgaben = [];
 try {
   hausaufgaben = await untis.hausaufgaben(isoDatum(start), isoDatum(ende));
@@ -154,7 +160,7 @@ const aufgabenFuer = (datum, fach) =>
     .filter((h) => h.faellig === datum && h.fach === fach)
     .map((h) => ({ text: h.text, anmerkung: h.anmerkung, lehrer: h.lehrer, erledigt: h.erledigt }));
 
-for (let i = 0; i < WOCHEN_VORAUS; i++) {
+for (let i = 0; i < WOCHEN_VORAUS + WOCHEN_RUECKBLICK; i++) {
   const montag = new Date(start);
   montag.setDate(montag.getDate() + i * 7);
   const freitag = new Date(montag);
