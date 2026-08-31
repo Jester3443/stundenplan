@@ -4,8 +4,8 @@ import {
   DOPPELBLOECKE,
   VAPID_OEFFENTLICH,
   DATEN_URL,
-} from './shared/konfiguration.mjs?v=12';
-import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=12';
+} from './shared/konfiguration.mjs?v=13';
+import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=13';
 import {
   schluesselSichern,
   schluesselLaden,
@@ -13,8 +13,8 @@ import {
   ladeMeineDaten,
   speichereMeineDaten,
   LEER,
-} from './daten.mjs?v=12';
-import { symbolFuer } from './symbole.mjs?v=12';
+} from './daten.mjs?v=13';
+import { symbolFuer } from './symbole.mjs?v=13';
 import {
   initBereiche,
   zeichneAufgaben,
@@ -26,10 +26,10 @@ import {
   lernVorschau,
   lernenAm,
   aktualisiereStundenZaehler,
-} from './bereiche.mjs?v=12';
+} from './bereiche.mjs?v=13';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 12;
+const APP_VERSION = 13;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];

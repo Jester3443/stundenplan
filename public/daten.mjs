@@ -5,7 +5,7 @@
 // Worker NICHT zugreifen. Er muss aber abends beim Eintreffen der
 // Push-Nachricht nachsehen koennen, welche Hausaufgaben offen sind.
 // Alles liegt verschluesselt - derselbe Schluessel wie beim Stundenplan.
-import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=12';
+import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=13';
 
 const DB_NAME = 'stundenplan';
 const LADEN = 'werte';
@@ -86,7 +86,8 @@ export const LEER = () => ({
   // Laufende Statistik: wie viel Unterricht hat je Fach stattgefunden?
   // Der Plan reicht nur wenige Wochen zurueck, deshalb zaehlt die App mit.
   stundenSumme: {}, // "DE1" -> Anzahl stattgefundener Stunden
-  gezaehlteTage: {} // "2026-08-17" -> true, damit kein Tag doppelt zaehlt
+  gezaehlteTage: {}, // "2026-08-17" -> true, damit kein Tag doppelt zaehlt
+  gewichtung: {} // "DE1" -> 40 (Prozentanteil der schriftlichen Noten)
 });
 
 /** Sorgt dafuer, dass alle Felder vorhanden sind - auch nach einem Update. */

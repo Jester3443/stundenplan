@@ -1482,3 +1482,18 @@ body {
 .sk-fach { font-size: 13px; font-weight: 600; }
 .fehlfach.stufe-neutral { --stufe-farbe: var(--fl-grau); }
 .fehlfach.stufe-neutral .ff-quote { color: var(--text-leise); }
+
+.note-gewicht {
+  appearance: none; border: none; font: inherit;
+  width: 100%;
+  margin-top: 10px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: transparent;
+  border: 1px solid var(--trennlinie);
+  color: var(--text-leise);
+  font-size: 13px;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  cursor: pointer;
+}
+.ng-wert { font-weight: 650; color: var(--fach-farbe); }

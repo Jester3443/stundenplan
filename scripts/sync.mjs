@@ -134,6 +134,11 @@ const schuljahr = app?.currentSchoolYear
   ? { name: app.currentSchoolYear.name, von: app.currentSchoolYear.dateRange.start, bis: app.currentSchoolYear.dateRange.end }
   : null;
 
+// Ferien einmal holen - die App braucht sie, um die Soll-Stunden je Fach
+// hochzurechnen (Grundlage der Fehlquote).
+const ferien = await untis.ferien();
+console.log(`  ${ferien.length} Ferienzeitraum/-raeume gefunden.`);
+
 const wochen = [];
 // Zwei Wochen rueckwaerts mitnehmen: Die App zaehlt daraus mit, wie viele
 // Stunden je Fach tatsaechlich stattgefunden haben (Grundlage der Fehlquote).
@@ -205,6 +210,7 @@ await untis.abmelden();
 const neu = {
   aktualisiert: new Date().toISOString(),
   schuljahr,
+  ferien,
   kurse: KURSE,
   wochen,
 };

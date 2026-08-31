@@ -1,9 +1,9 @@
 // Die drei Bereiche neben dem Stundenplan: Aufgaben, Noten, Mehr.
 // Bekommt beim Start alles Noetige von app.js uebergeben - so gibt es
 // keine gegenseitigen Importe zwischen den Dateien.
-import { KURSE } from './shared/konfiguration.mjs?v=12';
-import { symbolFuer } from './symbole.mjs?v=12';
-import { neueId } from './daten.mjs?v=12';
+import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=13';
+import { symbolFuer } from './symbole.mjs?v=13';
+import { neueId } from './daten.mjs?v=13';
 
 let A = null; // die von app.js gereichten Hilfsmittel
 export function initBereiche(api) {
@@ -554,12 +554,24 @@ export function punkteZuNote(punkte) {
   return `${note}${rest === 0 ? '+' : rest === 2 ? '−' : ''}`;
 }
 
-/** Gewichtung: schriftlich 40 %, muendlich/sonstige 60 % (Regelfall in Niedersachsen). */
-const GEWICHT_SCHRIFTLICH = 0.4;
+/**
+ * Gewichtung schriftlich zu muendlich.
+ *
+ * Niedersachsen gibt KEIN landesweites Verhaeltnis vor: Nach den
+ * Ergaenzenden Bestimmungen legt die Fachkonferenz jeder Schule die
+ * Gewichtung im Rahmen des Kerncurriculums fest. Einzige feste Zahl:
+ * Im Seminarfach zaehlt die Facharbeit zu 50 %.
+ * Deshalb ist der Wert je Fach einstellbar - Standard 40 %.
+ */
+const GEWICHT_STANDARD = 40;
+
+export const gewichtVon = (kuerzel) =>
+  A.zustand.meineDaten.gewichtung?.[kuerzel] ?? (kuerzel === 'sf3' ? 50 : GEWICHT_STANDARD);
 
 export function kursSchnitt(kuerzel) {
   const liste = A.zustand.meineDaten.noten[kuerzel] ?? [];
   if (!liste.length) return null;
+  const anteilSchriftlich = gewichtVon(kuerzel) / 100;
 
   const mittel = (art) => {
     const teil = liste.filter((n) => (art === 'klausur' ? n.art === 'klausur' : n.art !== 'klausur'));
@@ -570,7 +582,7 @@ export function kursSchnitt(kuerzel) {
   const schriftlich = mittel('klausur');
   const sonstige = mittel('sonstige');
   if (schriftlich !== null && sonstige !== null) {
-    return schriftlich * GEWICHT_SCHRIFTLICH + sonstige * (1 - GEWICHT_SCHRIFTLICH);
+    return schriftlich * anteilSchriftlich + sonstige * (1 - anteilSchriftlich);
   }
   return schriftlich ?? sonstige;
 }
@@ -626,6 +638,37 @@ function noteBearbeiten(kuerzel, note = null) {
   });
 }
 
+function gewichtBearbeiten(kuerzel) {
+  const kurs = kursVon(kuerzel);
+  oeffneEingabe({
+    titel: `Gewichtung in ${kurs?.fach ?? kuerzel}`,
+    unterzeile:
+      'Wie viel zählen die Klausuren? Den Rest machen mündliche und sonstige Leistungen aus. ' +
+      'Die Fachkonferenz legt das fest – frag deine Lehrkraft.',
+    felder: [
+      {
+        name: 'anteil',
+        label: 'Anteil der Klausuren',
+        typ: 'auswahl',
+        wert: String(gewichtVon(kuerzel)),
+        optionen: [
+          { wert: '30', text: '30 %' },
+          { wert: '40', text: '40 %' },
+          { wert: '50', text: '50 %' },
+          { wert: '60', text: '60 %' },
+        ],
+      },
+    ],
+    beimSichern: async (werte) => {
+      const daten = A.zustand.meineDaten;
+      daten.gewichtung ??= {};
+      daten.gewichtung[kuerzel] = Number(werte.anteil);
+      await A.speichern();
+      A.zeichnen();
+    },
+  });
+}
+
 export function zeichneNoten(ziel) {
   ziel.textContent = '';
 
@@ -678,6 +721,14 @@ export function zeichneNoten(ziel) {
       eintrag.addEventListener('click', () => noteBearbeiten(kurs.kuerzel, note));
       details.append(eintrag);
     }
+    const gewicht = document.createElement('button');
+    gewicht.type = 'button';
+    gewicht.className = 'note-gewicht';
+    gewicht.innerHTML =
+      `<span>Gewichtung</span><span class="ng-wert">${gewichtVon(kurs.kuerzel)} % schriftlich</span>`;
+    gewicht.addEventListener('click', () => gewichtBearbeiten(kurs.kuerzel));
+    details.append(gewicht);
+
     const hinzu = document.createElement('button');
     hinzu.type = 'button';
     hinzu.className = 'note-hinzu';
@@ -691,7 +742,9 @@ export function zeichneNoten(ziel) {
 
   const fuss = document.createElement('p');
   fuss.className = 'bereich-fuss';
-  fuss.textContent = 'Gewichtung: 40 % schriftlich, 60 % mündlich. Sag Bescheid, wenn eure Schule anders rechnet.';
+  fuss.textContent =
+    'Die Gewichtung legt in Niedersachsen die Fachkonferenz jedes Fachs fest – es gibt keine landesweite Vorgabe. ' +
+    'Tipp auf ein Fach und dann auf die Gewichtung, um sie anzupassen; frag den Wert bei deiner Lehrkraft ab.';
   ziel.append(fuss);
 }
 
@@ -722,6 +775,82 @@ export function aktualisiereStundenZaehler() {
     neueTage++;
   }
   return neueTage;
+}
+
+/**
+ * Der Wochenrhythmus je Fach: Wie viele Bloecke liegen an welchem Wochentag
+ * in einer A- bzw. B-Woche? Abgeleitet aus den veroeffentlichten Wochen.
+ */
+function wochenRhythmus() {
+  const roh = { A: {}, B: {} };   // typ -> wochentag -> kurs -> Summe
+  const wochenZahl = { A: 0, B: 0 };
+
+  for (const woche of A.zustand.plan?.wochen ?? []) {
+    if (!woche.veroeffentlicht) continue;
+    wochenZahl[woche.typ]++;
+    for (const tag of woche.tage) {
+      const wt = new Date(`${tag.datum}T12:00:00`).getDay();
+      for (const st of tag.stunden) {
+        if (!st.kurs) continue; // Termine zaehlen nicht als Unterricht
+        ((roh[woche.typ][wt] ??= {})[st.kurs] ??= 0);
+        roh[woche.typ][wt][st.kurs]++;
+      }
+    }
+  }
+
+  // Auf "pro Woche" herunterrechnen und runden - sonst zaehlt eine
+  // Studienwoche doppelt, in der gar nichts stattfand.
+  const rhythmus = { A: {}, B: {} };
+  for (const typ of ['A', 'B']) {
+    if (!wochenZahl[typ]) continue;
+    for (const [wt, faecher] of Object.entries(roh[typ])) {
+      rhythmus[typ][wt] = {};
+      for (const [kurs, summe] of Object.entries(faecher)) {
+        rhythmus[typ][wt][kurs] = Math.round(summe / wochenZahl[typ]);
+      }
+    }
+  }
+  return rhythmus;
+}
+
+/** Faellt dieser Tag in die Ferien oder auf einen Feiertag? */
+function istFrei(datum) {
+  return (A.zustand.plan?.ferien ?? []).some((f) => datum >= f.von && datum <= f.bis);
+}
+
+/**
+ * Geplante Stunden je Fach seit Schuljahresbeginn - hochgerechnet aus dem
+ * Wochenrhythmus, ohne Ferien und Feiertage.
+ *
+ * Warum hochrechnen statt mitzaehlen: WebUntis gibt den Plan nur wenige
+ * Wochen weit heraus, es gibt keine Historie. Wuerde die App nur mitzaehlen,
+ * stuende monatelang "zu wenig Daten" da.
+ */
+export function geplanteStunden() {
+  const beginn = A.zustand.plan?.schuljahr?.von;
+  if (!beginn) return {};
+
+  const rhythmus = wochenRhythmus();
+  const summe = {};
+  const bis = heute();
+
+  const tag = new Date(`${beginn}T12:00:00`);
+  const ende = new Date(`${bis}T12:00:00`);
+
+  while (tag < ende) {
+    const wt = tag.getDay();
+    if (wt !== 0 && wt !== 6) {
+      const datum = A.iso(tag);
+      if (!istFrei(datum)) {
+        const eintraege = rhythmus[wochentyp(datum)]?.[wt] ?? {};
+        for (const [kurs, anzahl] of Object.entries(eintraege)) {
+          summe[kurs] = (summe[kurs] ?? 0) + anzahl;
+        }
+      }
+    }
+    tag.setDate(tag.getDate() + 1);
+  }
+  return summe;
 }
 
 /** Wie viele Stunden hat Jasper in einem Fach verpasst? */
@@ -756,14 +885,18 @@ export const STUFEN = [
 /** Zu wenige Stunden fuer eine Aussage - dann bewusst KEINE Warnfarbe. */
 const NEUTRAL = { name: 'noch zu wenig Daten', farbe: 'neutral' };
 
-const MINDEST_STUNDEN = 5; // darunter ist eine Prozentangabe nicht aussagekraeftig
+const MINDEST_STUNDEN = 6; // darunter ist eine Prozentangabe nicht aussagekraeftig
 
 export function fehlAuswertung() {
   const daten = A.zustand.meineDaten;
+  const geplant = geplanteStunden();
   const zeilen = [];
 
   for (const kurs of KURSE) {
-    const stattgefunden = daten.stundenSumme?.[kurs.kuerzel] ?? 0;
+    // Bezugsgroesse ist der hochgerechnete Plan seit Schuljahresbeginn.
+    // Der mitgezaehlte Wert dient nur als Untergrenze, falls die
+    // Hochrechnung (z. B. am Schuljahresanfang) noch klein ist.
+    const stattgefunden = Math.max(geplant[kurs.kuerzel] ?? 0, daten.stundenSumme?.[kurs.kuerzel] ?? 0);
     const { gesamt, unentschuldigt } = verpasstIn(kurs.kuerzel);
     if (!stattgefunden && !gesamt) continue;
 
@@ -863,7 +996,7 @@ export function zeichneMehr(ziel) {
         `<div class="ff-balken"><div style="width:${z.belastbar ? Math.min(100, z.quote) : 0}%"></div></div>` +
         `<div class="ff-fuss">` +
         `<span class="ff-stufe">${z.stufe.name}</span>` +
-        `<span class="ff-zahlen">${z.verpasst} von ${z.stattgefunden} Std${z.unentschuldigt ? ` · ${z.unentschuldigt} unentschuldigt` : ''}</span>` +
+        `<span class="ff-zahlen">${z.verpasst} von ${z.stattgefunden} geplanten Std${z.unentschuldigt ? ` · ${z.unentschuldigt} unentschuldigt` : ''}</span>` +
         `</div>`;
       ziel.append(karte);
     }

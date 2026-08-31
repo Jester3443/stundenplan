@@ -145,6 +145,20 @@ export class UntisRest {
     return texte;
   }
 
+  /** Ferien und schulfreie Zeitraeume - noetig, um Soll-Stunden zu berechnen. */
+  async ferien() {
+    try {
+      const roh = (await this.client.getHolidays()) ?? [];
+      return roh.map((f) => ({
+        name: f.longName || f.name,
+        von: formatTag(f.startDate),
+        bis: formatTag(f.endDate),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
   async abmelden() {
     try {
       await this.client.logout();
