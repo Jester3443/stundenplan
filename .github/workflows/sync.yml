@@ -10,6 +10,8 @@ on:
     - cron: '0 19 * * 0-4'
     # Morgenueberblick: 4:30 UTC = 6:30 Sommerzeit / 5:30 Winterzeit.
     - cron: '30 4 * * 1-5'
+    # Hausaufgaben-Erinnerung am Vortag: 13:40 UTC = 15:40 Sommerzeit.
+    - cron: '40 13 * * 0-4'
   workflow_dispatch: # erlaubt den Start von Hand
 
 # Zwei gleichzeitige Laeufe wuerden sich gegenseitig ueberschreiben.
@@ -57,6 +59,7 @@ jobs:
           VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
           VAPID_KONTAKT: https://stundenplan-jasper.web.app
           PUSH_SUBSCRIPTION: ${{ secrets.PUSH_SUBSCRIPTION }}
+          PUSH_SUBSCRIPTION_CATALINA: ${{ secrets.PUSH_SUBSCRIPTION_CATALINA }}
           KNAPP: '1'
         run: npm run push
 
@@ -68,6 +71,7 @@ jobs:
           VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
           VAPID_KONTAKT: https://stundenplan-jasper.web.app
           PUSH_SUBSCRIPTION: ${{ secrets.PUSH_SUBSCRIPTION }}
+          PUSH_SUBSCRIPTION_CATALINA: ${{ secrets.PUSH_SUBSCRIPTION_CATALINA }}
           KNAPP: '1'
         run: npm run abend
 
@@ -78,8 +82,20 @@ jobs:
           VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
           VAPID_KONTAKT: https://stundenplan-jasper.web.app
           PUSH_SUBSCRIPTION: ${{ secrets.PUSH_SUBSCRIPTION }}
+          PUSH_SUBSCRIPTION_CATALINA: ${{ secrets.PUSH_SUBSCRIPTION_CATALINA }}
           KNAPP: '1'
         run: npm run morgen
+
+      - name: Hausaufgaben-Erinnerung fuer morgen
+        if: github.event.schedule == '40 13 * * 0-4'
+        env:
+          VAPID_PUBLIC: ${{ secrets.VAPID_PUBLIC }}
+          VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
+          VAPID_KONTAKT: https://stundenplan-jasper.web.app
+          PUSH_SUBSCRIPTION: ${{ secrets.PUSH_SUBSCRIPTION }}
+          PUSH_SUBSCRIPTION_CATALINA: ${{ secrets.PUSH_SUBSCRIPTION_CATALINA }}
+          KNAPP: '1'
+        run: npm run aufgaben
 
       - name: Verschluesselte Daten veroeffentlichen
         run: |

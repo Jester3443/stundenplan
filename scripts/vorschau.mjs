@@ -10,7 +10,8 @@ import 'dotenv/config';
 import webpush from 'web-push';
 import { BENUTZER } from '../public/shared/konfiguration.mjs';
 
-const ART = process.argv[2] === 'morgen' ? 'morgen' : 'abend';
+const ERLAUBT = ['abend', 'morgen', 'aufgaben'];
+const ART = ERLAUBT.includes(process.argv[2]) ? process.argv[2] : 'abend';
 
 const OEFFENTLICH = (process.env.VAPID_PUBLIC ?? '').trim();
 const PRIVAT = (process.env.VAPID_PRIVATE ?? '').trim();
@@ -38,7 +39,7 @@ function inBerlin(versatzTage = 0) {
   return format.format(new Date(Date.now() + versatzTage * 24 * 3600 * 1000)); // en-CA => YYYY-MM-DD
 }
 
-const zieldatum = ART === 'morgen' ? inBerlin(0) : inBerlin(1);
+const zieldatum = ART === 'morgen' ? inBerlin(0) : inBerlin(1); // 'aufgaben' blickt wie 'abend' auf morgen
 
 webpush.setVapidDetails(KONTAKT, OEFFENTLICH, PRIVAT);
 
@@ -61,6 +62,33 @@ for (const kennung of Object.keys(BENUTZER)) {
     if (treffer) tag = treffer;
   }
   if (!tag || !tag.stunden.length) continue;
+
+  // Aufgaben-Erinnerung: Der Server kennt die Aufgaben nicht (sie liegen
+  // verschluesselt auf dem Geraet). Er stoesst nur an - den Text baut die
+  // App selbst. Gesendet wird nur, wenn morgen ueberhaupt Unterricht ist.
+  if (ART === 'aufgaben') {
+    if (!tag.stunden.some((s) => s.kurs && s.status !== 'CANCELLED')) continue;
+    let anmeldungen;
+    try {
+      const gelesen = JSON.parse(empfaenger);
+      anmeldungen = Array.isArray(gelesen) ? gelesen : [gelesen];
+    } catch {
+      continue;
+    }
+    for (const anmeldung of anmeldungen) {
+      try {
+        await webpush.sendNotification(
+          anmeldung,
+          JSON.stringify({ titel: 'Hausaufgaben', koerper: '', marke: 'aufgaben', datum: zieldatum })
+        );
+        gesamtVerschickt++;
+      } catch (fehler) {
+        console.error(`Push (${kennung}) fehlgeschlagen: ${fehler.statusCode ?? fehler.message}`);
+      }
+    }
+    console.log(`${kennung}: Aufgaben-Erinnerung angestossen.`);
+    continue;
+  }
 
   const stunden = [...tag.stunden].filter((s) => s.kurs).sort((a, b) => a.von.localeCompare(b.von));
   const entfallen = stunden.filter((s) => s.status === 'CANCELLED');

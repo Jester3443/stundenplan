@@ -6,8 +6,8 @@ import {
   DATEN_URL,
   BENUTZER,
   setzeBenutzer,
-} from './shared/konfiguration.mjs?v=16';
-import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=16';
+} from './shared/konfiguration.mjs?v=17';
+import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=17';
 import {
   schluesselSichern,
   schluesselLaden,
@@ -16,8 +16,8 @@ import {
   speichereMeineDaten,
   setzePerson,
   LEER,
-} from './daten.mjs?v=16';
-import { symbolFuer } from './symbole.mjs?v=16';
+} from './daten.mjs?v=17';
+import { symbolFuer } from './symbole.mjs?v=17';
 import {
   initBereiche,
   zeichneAufgaben,
@@ -27,12 +27,13 @@ import {
   eingabeOffen,
   offeneAufgaben,
   lernVorschau,
+  aufgabenVorschau,
   lernenAm,
   aktualisiereStundenZaehler,
-} from './bereiche.mjs?v=16';
+} from './bereiche.mjs?v=17';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 16;
+const APP_VERSION = 17;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -216,6 +217,7 @@ const speichern = () => {
   }
   // Abgeleitete Kurzfassung fuer den Hintergrunddienst mit ablegen.
   zustand.meineDaten.lernVorschau = lernVorschau();
+  zustand.meineDaten.aufgabenVorschau = aufgabenVorschau();
   return speichereMeineDaten(zustand.meineDaten, schluessel);
 };
 

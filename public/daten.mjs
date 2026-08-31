@@ -5,7 +5,7 @@
 // Worker NICHT zugreifen. Er muss aber abends beim Eintreffen der
 // Push-Nachricht nachsehen koennen, welche Hausaufgaben offen sind.
 // Alles liegt verschluesselt - derselbe Schluessel wie beim Stundenplan.
-import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=16';
+import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=17';
 
 const DB_NAME = 'stundenplan';
 const LADEN = 'werte';
@@ -107,6 +107,9 @@ export const LEER = () => ({
   notizen: {},   // "datum|von|kurs" -> { aufgabe, notiz, erledigt }
   noten: {},     // "DE1" -> [ { id, art, punkte, datum, titel } ]
   klausuren: [], // { id, kurs, datum, thema }
+  // Frei eingetragene Hausaufgaben - unabhaengig von einer konkreten Stunde,
+  // damit man sie auch fuer Tage anlegen kann, an denen das Fach nicht liegt.
+  aufgaben: [], // { id, kurs, faellig, text, erledigt }
   fehlzeiten: [], // { id, datum, art, stunden, entschuldigt, grund }
   lernen: {}, // "klausurId|datum" -> true, wenn die Lernetappe erledigt ist
   // Laufende Statistik: wie viel Unterricht hat je Fach stattgefunden?

@@ -14,7 +14,8 @@
     "test:login": "node scripts/test-login.mjs",
     "dump": "node scripts/dump-my.mjs 6",
     "abend": "node scripts/vorschau.mjs abend",
-    "morgen": "node scripts/vorschau.mjs morgen"
+    "morgen": "node scripts/vorschau.mjs morgen",
+    "aufgaben": "node scripts/vorschau.mjs aufgaben"
   },
   "dependencies": {
     "dotenv": "^17.2.3",

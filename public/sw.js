@@ -2,17 +2,17 @@
 // reichert Push-Nachrichten um die eigenen Hausaufgaben an.
 // WICHTIG: Bei jedem App-Update die Versionsnummer hier UND die ?v=-Anhaenge
 // in index.html/app.js gemeinsam hochzaehlen.
-const CACHE = 'stundenplan-v16';
+const CACHE = 'stundenplan-v17';
 const HUELLE = [
   './',
   './index.html',
-  './styles.css?v=16',
-  './app.js?v=16',
-  './bereiche.mjs?v=16',
-  './daten.mjs?v=16',
-  './symbole.mjs?v=16',
-  './shared/konfiguration.mjs?v=16',
-  './shared/krypto.mjs?v=16',
+  './styles.css?v=17',
+  './app.js?v=17',
+  './bereiche.mjs?v=17',
+  './daten.mjs?v=17',
+  './symbole.mjs?v=17',
+  './shared/konfiguration.mjs?v=17',
+  './shared/krypto.mjs?v=17',
   './manifest.webmanifest',
   './icons/icon-180.png',
   './icons/icon-192.png',
@@ -91,6 +91,20 @@ async function eigeneAufgaben(datum) {
   }
 }
 
+/** Nur die offenen Hausaufgaben fuer ein Datum (fuer die 15:40-Erinnerung). */
+async function offeneAufgabenFuer(datum) {
+  try {
+    const schluesselB64 = await ausDatenbank('schluessel');
+    const paket = await ausDatenbank('meineDaten');
+    if (!schluesselB64 || !paket?.iv) return [];
+    const schluessel = await crypto.subtle.importKey('raw', b64aus(schluesselB64), 'AES-GCM', false, ['decrypt']);
+    const klar = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64aus(paket.iv) }, schluessel, b64aus(paket.daten));
+    return JSON.parse(new TextDecoder().decode(klar)).aufgabenVorschau?.[datum] ?? [];
+  } catch {
+    return [];
+  }
+}
+
 // ------------------------------------------------------------ Mitteilungen
 
 self.addEventListener('push', (e) => {
@@ -104,6 +118,19 @@ self.addEventListener('push', (e) => {
   e.waitUntil(
     (async () => {
       let koerper = inhalt.koerper;
+
+      // Die 15:40-Erinnerung kennt der Server nicht inhaltlich - er stoesst sie
+      // nur an, den Text bauen wir hier aus den lokalen Aufgaben.
+      if (inhalt.marke === 'aufgaben' && inhalt.datum) {
+        const offen = await offeneAufgabenFuer(inhalt.datum);
+        if (offen.length) {
+          inhalt.titel = offen.length === 1 ? 'Eine Hausaufgabe für morgen' : `${offen.length} Hausaufgaben für morgen`;
+          koerper = offen.slice(0, 4).join('\n');
+        } else {
+          inhalt.titel = 'Nichts mehr offen ✓';
+          koerper = 'Für morgen ist alles erledigt.';
+        }
+      }
 
       // Bei der Abend- und Morgenmeldung die eigenen Aufgaben anhaengen.
       if (inhalt.datum && (inhalt.marke === 'abendblick' || inhalt.marke === 'morgen')) {

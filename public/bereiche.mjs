@@ -1,9 +1,9 @@
 // Die drei Bereiche neben dem Stundenplan: Aufgaben, Noten, Mehr.
 // Bekommt beim Start alles Noetige von app.js uebergeben - so gibt es
 // keine gegenseitigen Importe zwischen den Dateien.
-import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=16';
-import { symbolFuer } from './symbole.mjs?v=16';
-import { neueId } from './daten.mjs?v=16';
+import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=17';
+import { symbolFuer } from './symbole.mjs?v=17';
+import { neueId } from './daten.mjs?v=17';
 
 let A = null; // die von app.js gereichten Hilfsmittel
 export function initBereiche(api) {
@@ -263,7 +263,31 @@ export function alleAufgaben() {
       }
     }
   }
-  return liste.sort((a, b) => a.datum.localeCompare(b.datum));
+  // Frei eingetragene Aufgaben (ohne Bindung an eine Stunde)
+  for (const eigene of A.zustand.meineDaten.aufgaben ?? []) {
+    const kurs = kursVon(eigene.kurs);
+    liste.push({
+      schluessel: `frei|${eigene.id}`,
+      quelle: 'frei',
+      datum: eigene.faellig,
+      kurs: eigene.kurs,
+      fachName: kurs?.fach ?? eigene.kurs,
+      farbe: kurs?.farbe ?? 'grau',
+      text: eigene.text,
+      erledigt: !!eigene.erledigt,
+      eintrag: eigene,
+      // Fuer die Sortierung: an die Stunde des Fachs an diesem Tag anlehnen,
+      // sonst ans Tagesende.
+      stunde: A.alleTage()
+        .find((t) => t.datum === eigene.faellig)
+        ?.stunden.find((x) => x.kurs === eigene.kurs) ?? null,
+    });
+  }
+
+  // Nach Faelligkeit, innerhalb eines Tages nach Stundenbeginn.
+  return liste.sort(
+    (a, b) => a.datum.localeCompare(b.datum) || (a.stunde?.von ?? '99:99').localeCompare(b.stunde?.von ?? '99:99')
+  );
 }
 
 /**
@@ -275,16 +299,75 @@ function schonVorbei(aufgabe) {
   const abstand = tageBis(aufgabe.datum);
   if (abstand < 0) return true;
   if (abstand > 0) return false;
+  // Ohne zugehoerige Stunde gilt sie den ganzen Tag ueber als offen.
+  if (!aufgabe.stunde) return false;
   const jetzt = new Date();
   return jetzt.getHours() * 60 + jetzt.getMinutes() >= A.minuten(aufgabe.stunde.bis);
 }
 
 export const offeneAufgaben = () => alleAufgaben().filter((a) => !a.erledigt && !schonVorbei(a));
 
+/**
+ * Wie dringend ist eine Aufgabe? Bestimmt Farbe und Beschriftung.
+ * Bewusst nur drei Stufen - mehr wuerde die Liste unruhig machen.
+ */
+function dringlichkeit(datum) {
+  const abstand = tageBis(datum);
+  if (abstand <= 0) return { stufe: 'heute', text: 'Heute fällig', farbe: 'var(--fl-rot)' };
+  if (abstand === 1) return { stufe: 'morgen', text: 'Morgen fällig', farbe: 'var(--fl-orange)' };
+  return { stufe: 'spaeter', text: datumText(datum), farbe: null };
+}
+
+function aufgabeBearbeiten(eintrag = null) {
+  oeffneEingabe({
+    titel: eintrag ? 'Aufgabe bearbeiten' : 'Neue Hausaufgabe',
+    unterzeile: 'Für welches Fach, bis wann, und was ist zu tun?',
+    felder: [
+      {
+        name: 'kurs',
+        label: 'Fach',
+        typ: 'auswahl',
+        wert: eintrag?.kurs ?? KURSE[0].kuerzel,
+        optionen: KURSE.map((k) => ({ wert: k.kuerzel, text: k.fach })),
+      },
+      { name: 'faellig', label: 'Fällig am', typ: 'datum', wert: eintrag?.faellig ?? naechsteStunde(eintrag?.kurs ?? KURSE[0].kuerzel), pflicht: true },
+      { name: 'text', label: 'Was ist zu tun?', typ: 'text', wert: eintrag?.text ?? '', platzhalter: 'z. B. Buch S. 42, Aufgabe 3', pflicht: true },
+    ],
+    beimSichern: async (werte) => {
+      const daten = A.zustand.meineDaten;
+      daten.aufgaben ??= [];
+      if (eintrag) Object.assign(eintrag, werte);
+      else daten.aufgaben.push({ id: neueId(), erledigt: false, ...werte });
+      daten.aufgaben.sort((a, b) => a.faellig.localeCompare(b.faellig));
+      await A.speichern();
+      A.zeichnen();
+    },
+    beimLoeschen: eintrag
+      ? async () => {
+          const daten = A.zustand.meineDaten;
+          daten.aufgaben = (daten.aufgaben ?? []).filter((a) => a.id !== eintrag.id);
+          await A.speichern();
+          A.zeichnen();
+        }
+      : null,
+  });
+}
+
+/** Wann ist das Fach das naechste Mal dran? Das ist der uebliche Abgabetermin. */
+function naechsteStunde(kuerzel) {
+  const heutigesDatum = heute();
+  const treffer = A.alleTage()
+    .filter((t) => t.datum > heutigesDatum)
+    .find((t) => t.stunden.some((s) => s.kurs === kuerzel && s.status !== 'CANCELLED'));
+  return treffer?.datum ?? heutigesDatum;
+}
+
 function aufgabenZeile(aufgabe) {
+  const eile = dringlichkeit(aufgabe.datum);
   const el = document.createElement('div');
-  el.className = `aufgabe${aufgabe.erledigt ? ' erledigt' : ''}`;
+  el.className = `aufgabe${aufgabe.erledigt ? ' erledigt' : ''} eile-${eile.stufe}`;
   el.style.setProperty('--fach-farbe', farbeVon(aufgabe.farbe));
+  if (eile.farbe) el.style.setProperty('--eile-farbe', eile.farbe);
 
   const haken = document.createElement('button');
   haken.type = 'button';
@@ -294,10 +377,14 @@ function aufgabenZeile(aufgabe) {
     ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>'
     : '';
   haken.addEventListener('click', async () => {
-    const id = A.notizId(aufgabe.stunde);
-    const eintrag = A.zustand.meineDaten.notizen[id] ?? {};
-    eintrag[aufgabe.feld] = !aufgabe.erledigt;
-    A.zustand.meineDaten.notizen[id] = eintrag;
+    if (aufgabe.quelle === 'frei') {
+      aufgabe.eintrag.erledigt = !aufgabe.erledigt;
+    } else {
+      const id = A.notizId(aufgabe.stunde);
+      const eintrag = A.zustand.meineDaten.notizen[id] ?? {};
+      eintrag[aufgabe.feld] = !aufgabe.erledigt;
+      A.zustand.meineDaten.notizen[id] = eintrag;
+    }
     await A.speichern();
     A.zeichnen();
   });
@@ -308,12 +395,16 @@ function aufgabenZeile(aufgabe) {
     `<div class="aufgabe-kopf">${symbolFuer(aufgabe.fachName, { groesse: 13, strich: 2 })}` +
     `<span class="aufgabe-fach">${aufgabe.fachName}</span>` +
     (aufgabe.quelle === 'lehrer' ? '<span class="aufgabe-quelle">Lehrkraft</span>' : '') +
+    (!aufgabe.erledigt && eile.farbe ? `<span class="aufgabe-eile">${eile.text}</span>` : '') +
     `</div>`;
   const text = document.createElement('p');
   text.className = 'aufgabe-text';
   text.textContent = aufgabe.text;
   inhalt.append(text);
-  inhalt.addEventListener('click', () => A.oeffneStunde(aufgabe.stunde));
+  inhalt.addEventListener('click', () => {
+    if (aufgabe.quelle === 'frei') aufgabeBearbeiten(aufgabe.eintrag);
+    else if (aufgabe.stunde) A.oeffneStunde(aufgabe.stunde);
+  });
 
   el.append(haken, inhalt);
   return el;
@@ -463,6 +554,19 @@ export function lernVorschau() {
   return vorschau;
 }
 
+/**
+ * Offene Hausaufgaben je Faelligkeitsdatum - fertig formuliert, damit der
+ * Hintergrunddienst sie ohne eigene Logik in die Erinnerung haengen kann.
+ */
+export function aufgabenVorschau() {
+  const vorschau = {};
+  for (const a of alleAufgaben()) {
+    if (a.erledigt) continue;
+    (vorschau[a.datum] ??= []).push(`${a.fachName}: ${a.text}`);
+  }
+  return vorschau;
+}
+
 function klausurBearbeiten(klausur = null) {
   oeffneEingabe({
     titel: klausur ? 'Klausur bearbeiten' : 'Klausur eintragen',
@@ -524,7 +628,9 @@ export function zeichneAufgaben(ziel) {
   // nicht als Aufgabe.
   const erledigt = alle.filter((a) => a.erledigt && tageBis(a.datum) >= -7);
 
-  ziel.append(ueberschrift(`Hausaufgaben${offen.length ? ` · ${offen.length} offen` : ''}`));
+  ziel.append(
+    ueberschrift(`Hausaufgaben${offen.length ? ` · ${offen.length} offen` : ''}`, '+ Eintragen', () => aufgabeBearbeiten())
+  );
 
   if (!offen.length) {
     ziel.append(
@@ -540,8 +646,10 @@ export function zeichneAufgaben(ziel) {
   let letztesDatum = '';
   for (const aufgabe of offen) {
     if (aufgabe.datum !== letztesDatum) {
+      const eile = dringlichkeit(aufgabe.datum);
       const kopf = document.createElement('p');
-      kopf.className = 'tages-trenner';
+      kopf.className = `tages-trenner eile-${eile.stufe}`;
+      if (eile.farbe) kopf.style.setProperty('--eile-farbe', eile.farbe);
       kopf.textContent = datumText(aufgabe.datum);
       ziel.append(kopf);
       letztesDatum = aufgabe.datum;

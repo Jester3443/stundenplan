@@ -1514,3 +1514,21 @@ body {
   transition: background 0.15s ease, color 0.15s ease;
 }
 .wer-knopf.aktiv { background: var(--akzent); color: #fff; }
+
+/* Dringlichkeit bei Hausaufgaben */
+.aufgabe.eile-heute:not(.erledigt),
+.aufgabe.eile-morgen:not(.erledigt) {
+  border-color: color-mix(in srgb, var(--eile-farbe) 45%, transparent);
+  box-shadow: inset 3px 0 0 var(--eile-farbe);
+}
+.aufgabe-eile {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--eile-farbe);
+  white-space: nowrap;
+}
+.aufgabe-kopf { width: 100%; }
+.tages-trenner.eile-heute, .tages-trenner.eile-morgen { color: var(--eile-farbe); }
