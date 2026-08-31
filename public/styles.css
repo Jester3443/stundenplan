@@ -1497,3 +1497,20 @@ body {
   cursor: pointer;
 }
 .ng-wert { font-weight: 650; color: var(--fach-farbe); }
+:root { --fl-gelb: #FFD426; }
+@media (prefers-color-scheme: light) { :root { --fl-gelb: #C79100; } }
+
+/* Personenauswahl im Anmeldefenster */
+.sperre-wer { display: flex; gap: 6px; width: 100%; }
+.wer-knopf {
+  appearance: none; border: none; font: inherit;
+  flex: 1;
+  padding: 11px;
+  border-radius: 12px;
+  background: var(--flaeche);
+  color: var(--text-leise);
+  font-size: 15px; font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.wer-knopf.aktiv { background: var(--akzent); color: #fff; }

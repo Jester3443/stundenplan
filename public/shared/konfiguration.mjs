@@ -19,27 +19,79 @@ export const VAPID_OEFFENTLICH =
  * Sobald die Cloud-Automatik steht, kommt hier die GitHub-Adresse rein -
  * dann braucht die Aktualisierung keinen PC und keinen Neu-Deploy mehr.
  */
-export const DATEN_URL = 'https://raw.githubusercontent.com/Jester3443/stundenplan/data/plan.enc.json';
+export const DATEN_URL = 'https://raw.githubusercontent.com/Jester3443/stundenplan/data/plan-{benutzer}.enc.json';
 
 /**
- * Jaspers acht Kurse.
+ * Alle Personen, die die App benutzen.
+ *
  * Wichtig: Untis unterscheidet Gross-/Kleinschreibung! Es gibt sowohl GE1 (MEIR)
- * als auch ge1 (han), ph1 (sim) und PH1 (mey), en1 (mar) und EN1 (eib).
- * Deshalb wird zusaetzlich der Lehrer geprueft.
+ * als auch ge1 (han), ph1 (sim) und PH1 (mey) - das sind verschiedene Kurse,
+ * nicht verschiedene Niveaus. Deshalb wird zusaetzlich der Lehrer geprueft.
+ *
+ * Das Niveau erkennt man an der Stundenzahl: 5 Bloecke je Doppelwoche = eA,
+ * 3 = gA, 4 = neu beginnende Fremdsprache, 2 = Seminarfach.
+ *
+ * quelle: 'person' = eigener Untis-Zugang (MY_TIMETABLE)
+ *         'klasse' = aus dem Jahrgangsplan gefiltert (kein eigener Zugang noetig)
  */
-export const KURSE = [
-  { kuerzel: 'DE1', lehrer: 'wil', fach: 'Deutsch',      niveau: 'eA', farbe: 'rot' },
-  { kuerzel: 'ma2', lehrer: 'seg', fach: 'Mathematik',   niveau: 'gA', farbe: 'blau' },
-  { kuerzel: 'en1', lehrer: 'mar', fach: 'Englisch',     niveau: 'eA', farbe: 'tuerkis' },
-  { kuerzel: 'bi2', lehrer: 'gro', fach: 'Biologie',     niveau: 'gA', farbe: 'gruen' },
-  { kuerzel: 'ph1', lehrer: 'sim', fach: 'Physik',       niveau: 'gA', farbe: 'violett' },
-  { kuerzel: 'GE1', lehrer: 'MEIR', fach: 'Geschichte',  niveau: 'eA', farbe: 'orange' },
-  { kuerzel: 'EK1', lehrer: 'lep', fach: 'Erdkunde',     niveau: 'eA', farbe: 'braun' },
-  { kuerzel: 'sf3', lehrer: 'eik', fach: 'Seminarfach',  niveau: '',   farbe: 'grau' },
-];
+export const BENUTZER = {
+  jasper: {
+    name: 'Jasper',
+    quelle: 'person',
+    klasse: '12',
+    kurse: [
+      { kuerzel: 'DE1', lehrer: 'wil', fach: 'Deutsch',      niveau: 'eA', farbe: 'rot' },
+      { kuerzel: 'ma2', lehrer: 'seg', fach: 'Mathematik',   niveau: 'gA', farbe: 'blau' },
+      { kuerzel: 'en1', lehrer: 'mar', fach: 'Englisch',     niveau: 'eA', farbe: 'tuerkis' },
+      { kuerzel: 'bi2', lehrer: 'gro', fach: 'Biologie',     niveau: 'gA', farbe: 'gruen' },
+      { kuerzel: 'ph1', lehrer: 'sim', fach: 'Physik',       niveau: 'gA', farbe: 'violett' },
+      { kuerzel: 'GE1', lehrer: 'MEIR', fach: 'Geschichte',  niveau: 'eA', farbe: 'orange' },
+      { kuerzel: 'EK1', lehrer: 'lep', fach: 'Erdkunde',     niveau: 'eA', farbe: 'braun' },
+      { kuerzel: 'sf3', lehrer: 'eik', fach: 'Seminarfach',  niveau: '',   farbe: 'grau' },
+    ],
+  },
 
-/** Jaspers Klasse - fuer die Frage, ob ein Termin ihn ueberhaupt betrifft. */
-export const MEINE_KLASSE = '12';
+  // Zweite Person - laeuft ueber den Jahrgangsplan, braucht keinen eigenen Zugang.
+  freundin: {
+    name: 'Freundin',
+    quelle: 'klasse',
+    klasse: '12',
+    kurse: [
+      { kuerzel: 'DE1', lehrer: 'wil', fach: 'Deutsch',          niveau: 'eA', farbe: 'rot' },
+      { kuerzel: 'ma2', lehrer: 'seg', fach: 'Mathematik',       niveau: 'gA', farbe: 'blau' },
+      { kuerzel: 'bi2', lehrer: 'gro', fach: 'Biologie',         niveau: 'gA', farbe: 'gruen' },
+      { kuerzel: 'ch1', lehrer: 'mtf', fach: 'Chemie',           niveau: 'gA', farbe: 'violett' },
+      { kuerzel: 'GE1', lehrer: 'MEIR', fach: 'Geschichte',      niveau: 'eA', farbe: 'orange' },
+      { kuerzel: 'PO1', lehrer: 'klü', fach: 'Politik',          niveau: 'eA', farbe: 'braun' },
+      { kuerzel: 'wn1', lehrer: 'BUE', fach: 'Werte und Normen', niveau: 'gA', farbe: 'tuerkis' },
+      // Spanisch hat 4 Bloecke -> neu beginnende Fremdsprache, also snN1.
+      { kuerzel: 'snN1', lehrer: 'rio', fach: 'Spanisch',        niveau: 'gA', farbe: 'gelb' },
+      // NOCH ZU BESTAETIGEN: drei Seminarfaecher laufen parallel (sf1/sf2/sf3).
+      { kuerzel: 'sf3', lehrer: 'eik', fach: 'Seminarfach',      niveau: '',   farbe: 'grau' },
+    ],
+  },
+};
+
+/**
+ * Wer ist gerade angemeldet?
+ * KURSE ist bewusst `let`: In ES-Modulen sehen alle importierenden Dateien
+ * die Neuzuweisung automatisch, ohne dass sie etwas davon wissen muessen.
+ */
+let aktiv = 'jasper';
+export let KURSE = BENUTZER.jasper.kurse;
+
+export const setzeBenutzer = (name) => {
+  if (!BENUTZER[name]) return false;
+  aktiv = name;
+  KURSE = BENUTZER[name].kurse;
+  return true;
+};
+export const aktiverBenutzer = () => BENUTZER[aktiv];
+export const benutzerName = () => aktiv;
+export const kurseVon = (name) => BENUTZER[name]?.kurse ?? [];
+
+/** Klasse der angemeldeten Person - fuer die Frage, ob ein Termin sie betrifft. */
+export const meineKlasse = () => aktiverBenutzer().klasse;
 
 /**
  * Termine, die grundsaetzlich nicht interessieren (Lehrer-Veranstaltungen).
@@ -53,7 +105,7 @@ export function terminBetrifftMich(name, klassenListe) {
   if (TERMIN_AUSBLENDEN.some((muster) => muster.test(name ?? ''))) return false;
   const klassen = (klassenListe ?? '').split(',').map((k) => k.trim()).filter(Boolean);
   // Viele Klassen aufgezaehlt, die eigene fehlt -> Veranstaltung anderer Jahrgaenge.
-  if (klassen.length >= 3 && !klassen.includes(MEINE_KLASSE)) return false;
+  if (klassen.length >= 3 && !klassen.includes(meineKlasse())) return false;
   return true;
 }
 
@@ -75,6 +127,7 @@ export const FARBEN = {
   violett:  { hell: '#AF52DE', dunkel: '#BF5AF2' },
   orange:   { hell: '#F08000', dunkel: '#FF9F0A' },
   braun:    { hell: '#A2845E', dunkel: '#AC8E68' },
+  gelb:     { hell: '#C79100', dunkel: '#FFD426' },
   grau:     { hell: '#8E8E93', dunkel: '#98989D' },
 };
 

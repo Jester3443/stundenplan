@@ -95,6 +95,22 @@ export class UntisRest {
   }
 
   /**
+   * Der Plan der GANZEN Klasse/Stufe - also alle Kurse des Jahrgangs.
+   * Braucht man, um die Kurse einer zweiten Person zu bestimmen, ohne
+   * deren Zugangsdaten zu haben.
+   */
+  async klassenPlan(von, bis) {
+    const roh = await this.rest(
+      `/WebUntis/api/rest/view/v1/timetable/entries?start=${von}&end=${bis}` +
+        `&format=1&resourceType=CLASS&resources=${this.session.klasseId}&periodTypes=&timetableType=STANDARD`
+    );
+    return (roh.days ?? []).map((tag) => ({
+      datum: tag.date,
+      stunden: (tag.gridEntries ?? []).map((e) => normalisiere(e, tag.date)),
+    }));
+  }
+
+  /**
    * Hausaufgaben, die Lehrer in WebUntis eingetragen haben.
    * Rueckgabe: Liste mit { faellig, fach, text, anmerkung, erledigt }.
    */

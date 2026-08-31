@@ -1,29 +1,40 @@
-// Holt den Plan, filtert auf Jaspers Kurse, erkennt Aenderungen gegenueber
-// dem letzten Abruf und schreibt einen fertigen Datenstand fuers Frontend.
+// Holt den Plan, filtert ihn je Person, erkennt Aenderungen gegenueber dem
+// letzten Abruf und schreibt je Person einen fertigen, verschluesselten Stand.
+//
+// Es gibt nur EINEN Untis-Zugang (Jaspers). Personen ohne eigenen Zugang
+// werden aus dem Jahrgangsplan gefiltert - dafuer reicht die Kursliste.
 import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import 'dotenv/config';
 import { UntisRest, isoDatum, montagVon } from './untis-rest.mjs';
-import { findeKurs, stundenBezeichnung, wochentyp, terminBetrifftMich, KURSE } from '../public/shared/konfiguration.mjs';
+import {
+  BENUTZER,
+  setzeBenutzer,
+  KURSE,
+  findeKurs,
+  stundenBezeichnung,
+  wochentyp,
+  terminBetrifftMich,
+} from '../public/shared/konfiguration.mjs';
 import { verschluesseln, entschluesseln } from './krypto-node.mjs';
 
-// Der Klartext-Stand bleibt IMMER lokal - er dient nur als Vergleichsbasis.
-const BASIS = 'data/letzter-plan.json';
-const ZIEL_KLAR = 'public/data/plan.json';
-const ZIEL_KRYPT = 'public/data/plan.enc.json';
-const CODE = (process.env.APP_CODE ?? '').trim();
 const WOCHEN_VORAUS = Number(process.argv[2] ?? 4);
+const WOCHEN_RUECKBLICK = 2;
 const TAGE = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
 
-/** Termine ohne Fach (Vollversammlung, Ausflug ...) betreffen den ganzen Jahrgang - die bleiben drin. */
+/** Zugangscode je Person: APP_CODE_JASPER, APP_CODE_FREUNDIN ... */
+const codeFuer = (kennung) =>
+  (process.env[`APP_CODE_${kennung.toUpperCase()}`] ?? (kennung === 'jasper' ? process.env.APP_CODE : '') ?? '').trim();
+
+/** Termine ohne Fach (Vollversammlung, Ausflug ...) betreffen den ganzen Jahrgang. */
 const istTermin = (s) => !s.fach && (s.typ === 'EVENT' || s.name || s.text);
 
-/** Behaelt nur, was Jasper wirklich betrifft. */
+/** Behaelt nur, was diese Person wirklich betrifft. */
 function filtere(stunden) {
   const behalten = [];
   for (const s of stunden) {
     // Lehrer gestrichen, KEIN Ersatz eingetragen -> "eigenverantwortliches
     // Arbeiten". In der Oberstufe wird nichts vertreten, das ist faktisch
-    // Entfall - und genau so soll es die App zeigen (Jaspers Vorgabe).
+    // Entfall - und genau so soll es die App zeigen.
     const ohneLehrkraft = !!s.lehrerErsetzt && !s.lehrer;
 
     const kurs = findeKurs(s.fach, s.lehrer || s.lehrerErsetzt);
@@ -59,7 +70,6 @@ function filtere(stunden) {
  */
 const schluessel = (datum, s) => `${datum}|${s.von}|${s.kurs ?? 'TERMIN'}`;
 
-/** Kurzbeschreibung des Zustands, um Unterschiede zu erkennen. */
 const zustand = (s) =>
   `${s.status}|${s.lehrer}|${s.raum}|${s.text}|${(s.aufgaben ?? []).map((a) => a.text).join('~')}`;
 
@@ -90,13 +100,7 @@ function findeAenderungen(alt, neu) {
         if (zustand(vorher) === zustand(s)) continue;
 
         if (aufgabenText(vorher) !== aufgabenText(s) && (s.aufgaben ?? []).length) {
-          aenderungen.push({
-            art: 'hausaufgabe',
-            datum: tag.datum,
-            block: s.block,
-            kurs: s.kurs ?? s.fachName,
-            text: `${s.fachName}: neue Hausaufgabe`,
-          });
+          aenderungen.push({ art: 'hausaufgabe', datum: tag.datum, block: s.block, kurs: s.kurs ?? s.fachName, text: `${s.fachName}: neue Hausaufgabe` });
         } else if (vorher.status !== 'CANCELLED' && s.status === 'CANCELLED') {
           aenderungen.push({ art: 'entfall', datum: tag.datum, block: s.block, kurs: s.kurs ?? s.fachName, text: `${s.fachName} faellt aus` });
         } else if (vorher.status === 'CANCELLED' && s.status !== 'CANCELLED') {
@@ -115,9 +119,7 @@ function findeAenderungen(alt, neu) {
   for (const [key, s] of alteStunden) {
     if (gesehen.has(key)) continue;
     const [datum] = key.split('|');
-    if (datum < isoDatum(new Date())) continue; // Vergangenes ignorieren
-    // Verschwundene Termine sind meist Datenrauschen (oder unser eigener
-    // Filter) - ein abgesagter Termin kaeme als CANCELLED, nicht als Luecke.
+    if (datum < isoDatum(new Date())) continue;
     if (key.endsWith('|TERMIN')) continue;
     aenderungen.push({ art: 'gestrichen', datum, block: s.block, kurs: s.kurs ?? s.fachName, text: `${s.fachName} steht nicht mehr im Plan` });
   }
@@ -126,6 +128,7 @@ function findeAenderungen(alt, neu) {
 }
 
 // ---------------------------------------------------------------- Ablauf
+
 const untis = new UntisRest();
 await untis.anmelden();
 
@@ -134,148 +137,163 @@ const schuljahr = app?.currentSchoolYear
   ? { name: app.currentSchoolYear.name, von: app.currentSchoolYear.dateRange.start, bis: app.currentSchoolYear.dateRange.end }
   : null;
 
-// Ferien einmal holen - die App braucht sie, um die Soll-Stunden je Fach
-// hochzurechnen (Grundlage der Fehlquote).
 const ferien = await untis.ferien();
-console.log(`  ${ferien.length} Ferienzeitraum/-raeume gefunden.`);
+console.log(`${ferien.length} Ferienzeitraeume, Schuljahr ${schuljahr?.name ?? '?'}\n`);
 
-const wochen = [];
-// Zwei Wochen rueckwaerts mitnehmen: Die App zaehlt daraus mit, wie viele
-// Stunden je Fach tatsaechlich stattgefunden haben (Grundlage der Fehlquote).
-// Ohne Rueckblick gingen Tage verloren, wenn die App mal ein paar Tage
-// nicht geoeffnet wird.
-const WOCHEN_RUECKBLICK = 2;
+// Zwei Wochen rueckwaerts mitnehmen, damit die Stundenstatistik keine Luecken
+// bekommt, wenn die App ein paar Tage nicht geoeffnet wird.
 const start = montagVon(new Date());
 start.setDate(start.getDate() - WOCHEN_RUECKBLICK * 7);
-
-// Hausaufgaben der Lehrer fuer den gesamten Zeitraum in einem Rutsch holen.
 const ende = new Date(start);
 ende.setDate(ende.getDate() + (WOCHEN_VORAUS + WOCHEN_RUECKBLICK) * 7);
-let hausaufgaben = [];
-try {
-  hausaufgaben = await untis.hausaufgaben(isoDatum(start), isoDatum(ende));
-  console.log(`  ${hausaufgaben.length} Hausaufgabe(n) von Lehrern gefunden.`);
-} catch (error) {
-  console.log(`  Hausaufgaben nicht abrufbar: ${error.message.slice(0, 80)}`);
-}
 
-/** Sucht die Lehrer-Hausaufgaben, die zu dieser Stunde faellig sind. */
-const aufgabenFuer = (datum, fach) =>
-  hausaufgaben
-    .filter((h) => h.faellig === datum && h.fach === fach)
-    .map((h) => ({ text: h.text, anmerkung: h.anmerkung, lehrer: h.lehrer, erledigt: h.erledigt }));
-
+// Rohdaten EINMAL holen und fuer alle Personen wiederverwenden.
+const rohPerson = [];
+const rohKlasse = [];
 for (let i = 0; i < WOCHEN_VORAUS + WOCHEN_RUECKBLICK; i++) {
   const montag = new Date(start);
   montag.setDate(montag.getDate() + i * 7);
   const freitag = new Date(montag);
   freitag.setDate(freitag.getDate() + 4);
 
-  let tage = [];
-  let fehler = null;
-  try {
-    tage = await untis.meinPlan(isoDatum(montag), isoDatum(freitag));
-  } catch (error) {
-    fehler = error.message.slice(0, 160);
-  }
+  const holen = async (fn) => {
+    try {
+      return await fn(isoDatum(montag), isoDatum(freitag));
+    } catch (fehler) {
+      return { fehler: fehler.message.slice(0, 140) };
+    }
+  };
 
-  const texte = tage.length ? await untis.terminTexte(isoDatum(montag)) : new Map();
+  rohPerson.push({ montag: isoDatum(montag), ergebnis: await holen((v, b) => untis.meinPlan(v, b)) });
+  rohKlasse.push({ montag: isoDatum(montag), ergebnis: await holen((v, b) => untis.klassenPlan(v, b)) });
+}
 
-  const gefiltert = tage.map((tag) => ({
-    datum: tag.datum,
-    wochentag: TAGE[new Date(`${tag.datum}T12:00:00`).getDay()],
-    status: tag.status,
-    hinweise: tag.hinweise,
-    stunden: filtere(tag.stunden).map((s) => {
-      const aufgaben = s.kurs ? aufgabenFuer(tag.datum, s.kurs) : [];
-      if (s.kurs) return aufgaben.length ? { ...s, aufgaben } : s;
-      const nachgereicht = texte.get(`${tag.datum}|${s.von}`);
-      return nachgereicht ? { ...s, fachName: nachgereicht, text: s.text || nachgereicht } : s;
-    }),
-  }));
+// Lehrer-Hausaufgaben gibt es nur fuer den eigenen Zugang.
+let hausaufgaben = [];
+try {
+  hausaufgaben = await untis.hausaufgaben(isoDatum(start), isoDatum(ende));
+} catch {
+  /* nicht verfuegbar */
+}
 
-  const anzahl = gefiltert.reduce((n, t) => n + t.stunden.length, 0);
-  wochen.push({
-    montag: isoDatum(montag),
-    typ: wochentyp(montag),
-    veroeffentlicht: anzahl > 0,
-    fehler,
-    tage: gefiltert,
-  });
-  console.log(`  Woche ab ${isoDatum(montag)} (${wochentyp(montag)}-Woche): ${anzahl} Stunden${fehler ? ` -- ${fehler}` : ''}${anzahl ? '' : '  [noch nicht veroeffentlicht]'}`);
+// Termintexte je Woche (die neue Schnittstelle laesst sie weg).
+const termintexte = new Map();
+for (const { montag } of rohPerson) {
+  for (const [key, text] of await untis.terminTexte(montag)) termintexte.set(key, text);
 }
 
 await untis.abmelden();
 
-const neu = {
-  aktualisiert: new Date().toISOString(),
-  schuljahr,
-  ferien,
-  kurse: KURSE,
-  wochen,
-};
+// ------------------------------------------------- je Person auswerten
 
-// Vergleichsbasis bestimmen. Auf dem Server (GitHub Actions) gibt es keine
-// lokalen Dateien - dort wird der zuletzt veroeffentlichte Stand von der
-// eigenen Seite geholt und entschluesselt.
-let alt = null;
-let bisherigesSalz = null; // Salz der letzten Veroeffentlichung wiederverwenden!
-const BASIS_URL = (process.env.BASIS_URL ?? '').trim();
+let fehlgeschlagen = 0;
 
-if (BASIS_URL && CODE) {
-  try {
-    const antwort = await fetch(`${BASIS_URL.replace(/\/$/, '')}/data/plan.enc.json`, { cache: 'no-store' });
-    if (antwort.ok) {
-      const paket = await antwort.json();
-      bisherigesSalz = paket.salz ?? null;
-      alt = entschluesseln(paket, CODE);
-      console.log('Vergleichsbasis: zuletzt veroeffentlichter Stand.');
-    } else {
-      console.log(`Vergleichsbasis: nicht abrufbar (HTTP ${antwort.status}) - dieser Lauf meldet keine Aenderungen.`);
-    }
-  } catch (error) {
-    console.log(`Vergleichsbasis: Fehler beim Laden (${error.message.slice(0, 80)}).`);
+for (const [kennung, person] of Object.entries(BENUTZER)) {
+  setzeBenutzer(kennung);
+  const code = codeFuer(kennung);
+  const roh = person.quelle === 'person' ? rohPerson : rohKlasse;
+
+  console.log(`--- ${person.name} (${kennung}, Quelle: ${person.quelle}) ---`);
+  if (!code) {
+    console.log(`  Kein Zugangscode gesetzt (APP_CODE_${kennung.toUpperCase()}) - uebersprungen.\n`);
+    fehlgeschlagen++;
+    continue;
   }
-}
 
-if (!alt) {
-  for (const quelle of [BASIS, ZIEL_KLAR]) {
+  const wochen = [];
+  for (const { montag, ergebnis } of roh) {
+    const tage = Array.isArray(ergebnis) ? ergebnis : [];
+    const fehler = Array.isArray(ergebnis) ? null : ergebnis.fehler;
+
+    const gefiltert = tage.map((tag) => ({
+      datum: tag.datum,
+      wochentag: TAGE[new Date(`${tag.datum}T12:00:00`).getDay()],
+      status: tag.status ?? 'REGULAR',
+      hinweise: tag.hinweise ?? [],
+      stunden: filtere(tag.stunden).map((s) => {
+        if (!s.kurs) {
+          const text = termintexte.get(`${tag.datum}|${s.von}`);
+          return text ? { ...s, fachName: text, text: s.text || text } : s;
+        }
+        // Hausaufgaben stammen aus dem persoenlichen Zugang - nur dort zuordnen.
+        if (person.quelle !== 'person') return s;
+        const aufgaben = hausaufgaben
+          .filter((h) => h.faellig === tag.datum && h.fach === s.kurs)
+          .map((h) => ({ text: h.text, anmerkung: h.anmerkung, lehrer: h.lehrer, erledigt: h.erledigt }));
+        return aufgaben.length ? { ...s, aufgaben } : s;
+      }),
+    }));
+
+    const anzahl = gefiltert.reduce((n, t) => n + t.stunden.length, 0);
+    wochen.push({ montag, typ: wochentyp(montag), veroeffentlicht: anzahl > 0, fehler, tage: gefiltert });
+  }
+
+  const gesamt = wochen.reduce((n, w) => n + w.tage.reduce((m, t) => m + t.stunden.length, 0), 0);
+  console.log(`  ${KURSE.length} Kurse, ${gesamt} Stunden in ${wochen.length} Wochen`);
+
+  const basis = `data/letzter-plan-${kennung}.json`;
+  const ziel = `public/data/plan-${kennung}.enc.json`;
+
+  // Vergleichsbasis: bevorzugt der zuletzt veroeffentlichte Stand.
+  let alt = null;
+  let bisherigesSalz = null;
+  const basisUrl = (process.env.BASIS_URL ?? '').trim();
+  if (basisUrl) {
     try {
-      alt = JSON.parse(await readFile(quelle, 'utf8'));
-      break;
+      const antwort = await fetch(`${basisUrl.replace(/\/$/, '')}/data/plan-${kennung}.enc.json`, { cache: 'no-store' });
+      if (antwort.ok) {
+        const paket = await antwort.json();
+        bisherigesSalz = paket.salz ?? null;
+        alt = entschluesseln(paket, code);
+      }
     } catch {
-      /* naechste Quelle versuchen */
+      /* beim ersten Lauf normal */
     }
   }
+  if (!alt) {
+    try {
+      alt = JSON.parse(await readFile(basis, 'utf8'));
+    } catch {
+      /* erster Lauf */
+    }
+  }
+  bisherigesSalz ??= alt?._salz ?? null;
+
+  const neu = { aktualisiert: new Date().toISOString(), benutzer: kennung, schuljahr, ferien, kurse: KURSE, wochen };
+  neu.aenderungen = findeAenderungen(alt, neu);
+  neu.verlauf = [
+    ...(alt?.verlauf ?? []).slice(-50),
+    ...neu.aenderungen.map((a) => ({ ...a, erkannt: neu.aktualisiert })),
+  ];
+
+  // Salz wiederverwenden - sonst passt der auf dem Geraet gespeicherte
+  // Schluessel nach jeder Veroeffentlichung nicht mehr.
+  const paket = verschluesseln(neu, code, bisherigesSalz);
+  neu._salz = paket.salz;
+
+  await mkdir('data', { recursive: true });
+  await mkdir('public/data', { recursive: true });
+  await writeFile(basis, JSON.stringify(neu, null, 2), 'utf8');
+  await writeFile(ziel, JSON.stringify(paket), 'utf8');
+
+  // Uebergangsweise auch unter dem alten Namen, damit aeltere App-Versionen
+  // auf dem Handy nicht ins Leere laufen.
+  if (kennung === 'jasper') await writeFile('public/data/plan.enc.json', JSON.stringify(paket), 'utf8');
+
+  console.log(`  ${neu.aenderungen.length} Aenderung(en), geschrieben: ${ziel}`);
+  if (!process.env.KNAPP) for (const a of neu.aenderungen) console.log(`    - ${a.datum} ${a.block} ${a.text}`);
+  console.log('');
 }
-bisherigesSalz ??= alt?._salz ?? null;
 
-neu.aenderungen = findeAenderungen(alt, neu);
-const frisch = neu.aenderungen.map((a) => ({ ...a, erkannt: neu.aktualisiert }));
-neu.verlauf = [...(alt?.verlauf ?? []).slice(-50), ...frisch];
+await rm('public/data/plan.json', { force: true }); // Klartext darf nie ins Netz
 
-await mkdir('public/data', { recursive: true });
-await mkdir('data', { recursive: true });
-await writeFile(BASIS, JSON.stringify(neu, null, 2), 'utf8');
-
-if (CODE) {
-  // Verschluesselt veroeffentlichen. Der Klartext darf public/ nie erreichen.
-  const paket = verschluesseln(neu, CODE, bisherigesSalz);
-  neu._salz = paket.salz; // fuers naechste Mal merken (lokaler Lauf ohne BASIS_URL)
-  await writeFile(BASIS, JSON.stringify(neu, null, 2), 'utf8');
-  await writeFile(ZIEL_KRYPT, JSON.stringify(paket), 'utf8');
-  await rm(ZIEL_KLAR, { force: true });
-  console.log(`\nVerschluesselt geschrieben: ${ZIEL_KRYPT} (Salz ${bisherigesSalz ? 'wiederverwendet' : 'NEU'})`);
-} else {
-  await writeFile(ZIEL_KLAR, JSON.stringify(neu, null, 2), 'utf8');
-  await rm(ZIEL_KRYPT, { force: true });
-  console.log(`\nGeschrieben (unverschluesselt, nur lokal): ${ZIEL_KLAR}`);
-  console.log('Hinweis: Fuer die Veroeffentlichung APP_CODE setzen, dann wird verschluesselt.');
+const erledigt = Object.keys(BENUTZER).length - fehlgeschlagen;
+if (fehlgeschlagen) {
+  console.warn(`Hinweis: ${fehlgeschlagen} Person(en) ohne Zugangscode uebersprungen.`);
 }
-
-console.log(`\n${neu.aenderungen.length} Aenderung(en) seit dem letzten Abruf.`);
-// In der Cloud ist das Protokoll oeffentlich einsehbar - dort keine Details ausgeben.
-if (!process.env.KNAPP) {
-  for (const a of neu.aenderungen) console.log(`  - ${a.datum} ${a.block} ${a.text}`);
+// Nur abbrechen, wenn GAR NICHTS erzeugt wurde - ein fehlender zweiter
+// Code darf den Lauf der ersten Person nicht mitreissen.
+if (!erledigt) {
+  console.error('Keine einzige Person konnte verarbeitet werden.');
+  process.exit(1);
 }
-console.log('');

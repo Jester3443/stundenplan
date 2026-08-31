@@ -5,41 +5,65 @@
 // Worker NICHT zugreifen. Er muss aber abends beim Eintreffen der
 // Push-Nachricht nachsehen koennen, welche Hausaufgaben offen sind.
 // Alles liegt verschluesselt - derselbe Schluessel wie beim Stundenplan.
-import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=13';
+import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=14';
 
 const DB_NAME = 'stundenplan';
 const LADEN = 'werte';
 
+// Jede Person hat ihre eigene Ablage - auch wenn beide dasselbe Geraet nutzen.
+let person = 'jasper';
+export const setzePerson = (name) => { person = name; };
+const schluesselName = () => (person === 'jasper' ? 'schluessel' : `schluessel:${person}`);
+const datenName = () => (person === 'jasper' ? 'meineDaten' : `meineDaten:${person}`);
+
+/**
+ * Verbindung zur Datenbank - mit Zeitgrenze.
+ * indexedDB.open() loest weder auf noch ab, wenn die Datenbank gerade
+ * blockiert ist (z. B. weil ein anderer Tab sie loescht). Ohne Zeitgrenze
+ * bliebe die App dann ewig bei "Lade ..." stehen.
+ */
 function db() {
-  return new Promise((fertig, fehler) => {
-    const anfrage = indexedDB.open(DB_NAME, 1);
-    anfrage.onupgradeneeded = () => {
-      if (!anfrage.result.objectStoreNames.contains(LADEN)) {
-        anfrage.result.createObjectStore(LADEN);
-      }
-    };
-    anfrage.onsuccess = () => fertig(anfrage.result);
-    anfrage.onerror = () => fehler(anfrage.error);
-  });
+  return Promise.race([
+    new Promise((fertig, fehler) => {
+      const anfrage = indexedDB.open(DB_NAME, 1);
+      anfrage.onupgradeneeded = () => {
+        if (!anfrage.result.objectStoreNames.contains(LADEN)) {
+          anfrage.result.createObjectStore(LADEN);
+        }
+      };
+      anfrage.onsuccess = () => fertig(anfrage.result);
+      anfrage.onerror = () => fehler(anfrage.error);
+      anfrage.onblocked = () => fehler(new Error('Datenbank blockiert'));
+    }),
+    new Promise((_, fehler) => setTimeout(() => fehler(new Error('Datenbank antwortet nicht')), 3000)),
+  ]);
 }
 
 async function hole(schluessel) {
-  const verbindung = await db();
-  return new Promise((fertig, fehler) => {
-    const a = verbindung.transaction(LADEN, 'readonly').objectStore(LADEN).get(schluessel);
-    a.onsuccess = () => fertig(a.result ?? null);
-    a.onerror = () => fehler(a.error);
-  });
+  try {
+    const verbindung = await db();
+    return await new Promise((fertig, fehler) => {
+      const a = verbindung.transaction(LADEN, 'readonly').objectStore(LADEN).get(schluessel);
+      a.onsuccess = () => fertig(a.result ?? null);
+      a.onerror = () => fehler(a.error);
+    });
+  } catch {
+    return null; // lieber ohne gespeicherte Daten weiterlaufen als haengen
+  }
 }
 
 async function lege(schluessel, wert) {
-  const verbindung = await db();
-  return new Promise((fertig, fehler) => {
-    const t = verbindung.transaction(LADEN, 'readwrite');
-    t.objectStore(LADEN).put(wert, schluessel);
-    t.oncomplete = () => fertig();
-    t.onerror = () => fehler(t.error);
-  });
+  try {
+    const verbindung = await db();
+    await new Promise((fertig, fehler) => {
+      const t = verbindung.transaction(LADEN, 'readwrite');
+      t.objectStore(LADEN).put(wert, schluessel);
+      t.oncomplete = () => fertig();
+      t.onerror = () => fehler(t.error);
+    });
+  } catch {
+    /* Speichern fehlgeschlagen - die App laeuft trotzdem weiter */
+  }
 }
 
 // ------------------------------------------------------------- Schluessel
@@ -49,7 +73,7 @@ const b64aus = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 
 export async function schluesselSichern(schluessel) {
   const roh = await crypto.subtle.exportKey('raw', schluessel);
-  await lege('schluessel', b64ein(roh));
+  await lege(schluesselName(), b64ein(roh));
   localStorage.removeItem('schluessel'); // alter Ablageort
 }
 
@@ -57,10 +81,10 @@ export async function schluesselLaden() {
   // Umzug von localStorage: einmalig uebernehmen, damit niemand neu entsperren muss.
   const alt = localStorage.getItem('schluessel');
   if (alt) {
-    await lege('schluessel', alt);
+    await lege(schluesselName(), alt);
     localStorage.removeItem('schluessel');
   }
-  const gespeichert = await hole('schluessel');
+  const gespeichert = await hole(schluesselName());
   if (!gespeichert) return null;
   try {
     return await crypto.subtle.importKey('raw', b64aus(gespeichert), 'AES-GCM', true, ['encrypt', 'decrypt']);
@@ -71,7 +95,7 @@ export async function schluesselLaden() {
 
 export async function schluesselVergessen() {
   localStorage.removeItem('schluessel');
-  await lege('schluessel', null);
+  await lege(schluesselName(), null);
 }
 
 // ---------------------------------------------------------- Meine Daten
@@ -94,7 +118,7 @@ export const LEER = () => ({
 const vervollstaendige = (daten) => ({ ...LEER(), ...(daten ?? {}) });
 
 export async function ladeMeineDaten(schluessel) {
-  const paket = await hole('meineDaten');
+  const paket = await hole(datenName());
 
   // Erstmaliger Umzug: die alten Notizen aus localStorage uebernehmen.
   if (!paket) {
@@ -128,7 +152,7 @@ export async function ladeMeineDaten(schluessel) {
 export async function speichereMeineDaten(daten, schluessel) {
   // Auch ohne Schluessel speichern - sonst gingen Eintraege bei der
   // lokalen Entwicklung stillschweigend verloren.
-  await lege('meineDaten', schluessel ? await verschluesseln(daten, schluessel) : daten);
+  await lege(datenName(), schluessel ? await verschluesseln(daten, schluessel) : daten);
 }
 
 /** Kleine Kennung fuer neue Eintraege - ohne Zufallsquelle, damit es stabil bleibt. */

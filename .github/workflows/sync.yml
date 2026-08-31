@@ -43,6 +43,8 @@ jobs:
           UNTIS_SECRET: ${{ secrets.UNTIS_SECRET }}
           UNTIS_PASSWORD: ${{ secrets.UNTIS_PASSWORD }}
           APP_CODE: ${{ secrets.APP_CODE }}
+          APP_CODE_JASPER: ${{ secrets.APP_CODE }}
+          APP_CODE_FREUNDIN: ${{ secrets.APP_CODE_FREUNDIN }}
           # Zuletzt veroeffentlichter Stand als Vergleichsbasis
           BASIS_URL: https://raw.githubusercontent.com/${{ github.repository }}
           # Oeffentliches Protokoll -> keine Inhalte ausgeben
@@ -81,17 +83,17 @@ jobs:
 
       - name: Verschluesselte Daten veroeffentlichen
         run: |
-          if [ ! -f public/data/plan.enc.json ]; then
-            echo "Keine verschluesselten Daten (APP_CODE-Secret fehlt?) - Abbruch."
+          if ! ls public/data/plan*.enc.json >/dev/null 2>&1; then
+            echo "Keine verschluesselten Daten (Zugangscode-Secret fehlt?) - Abbruch."
             exit 1
           fi
           mkdir out
-          cp public/data/plan.enc.json out/
+          cp public/data/plan*.enc.json out/
           cd out
           git init -q -b data
           git config user.name "stundenplan-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add plan.enc.json
+          git add .
           git commit -q -m "Stand $(date -u +%Y-%m-%dT%H:%M)"
           # Immer nur EIN Commit auf dem data-Zweig - so bleibt das Repo klein.
           git push -q --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data

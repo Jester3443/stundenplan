@@ -4,17 +4,20 @@ import {
   DOPPELBLOECKE,
   VAPID_OEFFENTLICH,
   DATEN_URL,
-} from './shared/konfiguration.mjs?v=13';
-import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=13';
+  BENUTZER,
+  setzeBenutzer,
+} from './shared/konfiguration.mjs?v=14';
+import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=14';
 import {
   schluesselSichern,
   schluesselLaden,
   schluesselVergessen,
   ladeMeineDaten,
   speichereMeineDaten,
+  setzePerson,
   LEER,
-} from './daten.mjs?v=13';
-import { symbolFuer } from './symbole.mjs?v=13';
+} from './daten.mjs?v=14';
+import { symbolFuer } from './symbole.mjs?v=14';
 import {
   initBereiche,
   zeichneAufgaben,
@@ -26,10 +29,10 @@ import {
   lernVorschau,
   lernenAm,
   aktualisiereStundenZaehler,
-} from './bereiche.mjs?v=13';
+} from './bereiche.mjs?v=14';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 13;
+const APP_VERSION = 14;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -51,6 +54,12 @@ function kalenderwoche(datum) {
 const alsDatum = (s) => new Date(`${s}T12:00:00`);
 const minuten = (uhr) => Number(uhr.slice(0, 2)) * 60 + Number(uhr.slice(3, 5));
 
+/** Wer ist auf diesem Geraet angemeldet? */
+const gemerkt = localStorage.getItem('benutzer');
+let person = BENUTZER[gemerkt] ? gemerkt : 'jasper';
+setzeBenutzer(person);
+setzePerson(person);
+
 const zustand = {
   plan: null,
   gewaehlt: null, // YYYY-MM-DD
@@ -70,18 +79,45 @@ async function holeRoh(frisch) {
 
   // Bevorzugt aus der Cloud (immer aktuell, unabhängig vom Deploy) ...
   if (DATEN_URL) {
-    const cloud = await fetch(`${DATEN_URL}${anhang}`, einstellung).catch(() => null);
+    const cloud = await fetch(`${DATEN_URL.replace('{benutzer}', person)}${anhang}`, einstellung).catch(() => null);
     if (cloud?.ok) return { verschluesselt: true, paket: await cloud.json() };
   }
 
   // ... sonst von der eigenen Adresse.
-  const verschluesselt = await fetch(`data/plan.enc.json${anhang}`, einstellung).catch(() => null);
+  const verschluesselt = await fetch(`data/plan-${person}.enc.json${anhang}`, einstellung).catch(() => null);
   if (verschluesselt?.ok) return { verschluesselt: true, paket: await verschluesselt.json() };
 
   const klar = await fetch(`data/plan.json${anhang}`, einstellung).catch(() => null);
   if (klar?.ok) return { verschluesselt: false, plan: await klar.json() };
 
   throw new Error('Plandaten sind nicht erreichbar.');
+}
+
+/** Auswahlknöpfe für die Person - nur nötig, wenn es mehr als eine gibt. */
+function zeichneBenutzerwahl() {
+  const behaelter = $('sperreWer');
+  const namen = Object.keys(BENUTZER);
+  behaelter.hidden = namen.length < 2;
+  if (namen.length < 2) return;
+
+  behaelter.textContent = '';
+  for (const kennung of namen) {
+    const knopf = document.createElement('button');
+    knopf.type = 'button';
+    knopf.className = `wer-knopf${kennung === person ? ' aktiv' : ''}`;
+    knopf.textContent = BENUTZER[kennung].name;
+    knopf.addEventListener('click', () => {
+      person = kennung;
+      localStorage.setItem('benutzer', kennung);
+      setzeBenutzer(kennung);
+      setzePerson(kennung);
+      schluessel = null;
+      zeichneBenutzerwahl();
+      $('sperreFehler').hidden = true;
+      $('sperreCode').focus();
+    });
+    behaelter.append(knopf);
+  }
 }
 
 function frageCode({ fehler = false } = {}) {
@@ -91,6 +127,7 @@ function frageCode({ fehler = false } = {}) {
     const knopf = $('sperreKnopf');
 
     $('sperre').hidden = false;
+    zeichneBenutzerwahl();
     $('sperreFehler').hidden = !fehler;
     knopf.disabled = false;
     knopf.textContent = 'Entsperren';
@@ -125,19 +162,30 @@ async function ladePlan({ frisch = false, leise = false } = {}) {
     return roh.plan;
   }
 
-  const salz = b64.aus(roh.paket.salz);
+  let paket = roh.paket;
   schluessel ??= await schluesselLaden();
   let fehler = false;
+  let vorigePerson = person;
 
   for (;;) {
     if (!schluessel) {
       if (leise && zustand.plan) return null; // alten Stand behalten, nicht nerven
       const code = await frageCode({ fehler });
-      schluessel = await schluesselAusCode(code, salz);
+      // Person kann im Anmeldefenster gewechselt worden sein - dann gehören
+      // die geladenen Daten zur falschen Person.
+      if (person !== vorigePerson) {
+        vorigePerson = person;
+        const neuRoh = await holeRoh(true);
+        if (neuRoh.verschluesselt) paket = neuRoh.paket;
+        schluessel = await schluesselLaden();
+        if (schluessel) continue;
+      }
+      schluessel = await schluesselAusCode(code, b64.aus(paket.salz));
     }
     try {
-      const plan = await entschluesseln(roh.paket, schluessel);
+      const plan = await entschluesseln(paket, schluessel);
       await schluesselSichern(schluessel);
+      localStorage.setItem('benutzer', person);
       $('sperre').hidden = true;
       return plan;
     } catch {
@@ -1030,10 +1078,25 @@ async function starten({ frisch = false, leise = false } = {}) {
 }
 
 // Alles, was die anderen Bereiche von hier brauchen.
+/** Abmelden: Schluessel verwerfen, damit die Anmeldung wieder erscheint. */
+async function abmelden() {
+  await schluesselVergessen();
+  schluessel = null;
+  zustand.plan = null;
+  zustand.gewaehlt = null;
+  zeichnen.zuletzt = null;
+  zustand.meineDaten = LEER();
+  $('inhalt').textContent = '';
+  await starten();
+  setzeTab('plan'); // nach dem Wechsel wieder beim Stundenplan anfangen
+}
+
 initBereiche({
   zustand,
   iso,
   minuten,
+  abmelden,
+  personName: () => BENUTZER[person].name,
   alleTage,
   notizId,
   speichern,
