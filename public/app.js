@@ -6,8 +6,8 @@ import {
   DATEN_URL,
   BENUTZER,
   setzeBenutzer,
-} from './shared/konfiguration.mjs?v=17';
-import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=17';
+} from './shared/konfiguration.mjs?v=18';
+import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=18';
 import {
   schluesselSichern,
   schluesselLaden,
@@ -16,8 +16,8 @@ import {
   speichereMeineDaten,
   setzePerson,
   LEER,
-} from './daten.mjs?v=17';
-import { symbolFuer } from './symbole.mjs?v=17';
+} from './daten.mjs?v=18';
+import { symbolFuer } from './symbole.mjs?v=18';
 import {
   initBereiche,
   zeichneAufgaben,
@@ -30,10 +30,10 @@ import {
   aufgabenVorschau,
   lernenAm,
   aktualisiereStundenZaehler,
-} from './bereiche.mjs?v=17';
+} from './bereiche.mjs?v=18';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 17;
+const APP_VERSION = 18;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -866,6 +866,7 @@ function oeffneStunde(s) {
 
   const bereich = $('modalAufgaben');
   bereich.textContent = '';
+  bereich.style.setProperty('--fach-farbe', farbeVon(s.farbe));
   for (const a of s.aufgaben ?? []) {
     const el = document.createElement('div');
     el.className = 'notiz-anzeige';

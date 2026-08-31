@@ -741,12 +741,13 @@ body {
   border: 1.5px solid var(--text-sehr-leise);
 }
 
-/* Aufgaben-Anzeige im geoeffneten Fenster */
+/* Aufgaben-Anzeige im geoeffneten Fenster - in der Fachfarbe wie ueberall */
 .notiz-anzeige {
   margin: 0 0 10px;
   padding: 11px 13px;
   border-radius: 11px;
-  background: var(--flaeche);
+  background: color-mix(in srgb, var(--fach-farbe) 13%, var(--flaeche));
+  border: 0.5px solid color-mix(in srgb, var(--fach-farbe) 26%, transparent);
   font-size: 15px;
   color: var(--text);
   line-height: 1.4;
@@ -1128,9 +1129,9 @@ body {
 .aufgabe-fach { font-size: 13px; font-weight: 700; letter-spacing: 0.01em; }
 .aufgabe-quelle {
   font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
-  color: var(--text-sehr-leise);
-  border: 1px solid var(--trennlinie);
-  border-radius: 5px; padding: 1px 5px;
+  color: var(--fach-farbe);
+  background: color-mix(in srgb, var(--fach-farbe) 16%, transparent);
+  border-radius: 5px; padding: 2px 6px;
 }
 .aufgabe-text { margin: 4px 0 0; font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
 .aufgabe.erledigt .aufgabe-text { text-decoration: line-through; }
