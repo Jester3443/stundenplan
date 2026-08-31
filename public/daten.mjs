@@ -5,7 +5,7 @@
 // Worker NICHT zugreifen. Er muss aber abends beim Eintreffen der
 // Push-Nachricht nachsehen koennen, welche Hausaufgaben offen sind.
 // Alles liegt verschluesselt - derselbe Schluessel wie beim Stundenplan.
-import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=15';
+import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=16';
 
 const DB_NAME = 'stundenplan';
 const LADEN = 'werte';
@@ -39,17 +39,19 @@ function db() {
   ]);
 }
 
+/**
+ * Liest einen Wert. Wirft bei einem Lesefehler bewusst weiter:
+ * "nichts gespeichert" und "konnte nicht gelesen werden" duerfen NICHT
+ * verwechselt werden - sonst wuerde die App gespeicherte Daten mit einem
+ * leeren Stand ueberschreiben.
+ */
 async function hole(schluessel) {
-  try {
-    const verbindung = await db();
-    return await new Promise((fertig, fehler) => {
-      const a = verbindung.transaction(LADEN, 'readonly').objectStore(LADEN).get(schluessel);
-      a.onsuccess = () => fertig(a.result ?? null);
-      a.onerror = () => fehler(a.error);
-    });
-  } catch {
-    return null; // lieber ohne gespeicherte Daten weiterlaufen als haengen
-  }
+  const verbindung = await db();
+  return new Promise((fertig, fehler) => {
+    const a = verbindung.transaction(LADEN, 'readonly').objectStore(LADEN).get(schluessel);
+    a.onsuccess = () => fertig(a.result ?? null);
+    a.onerror = () => fehler(a.error);
+  });
 }
 
 async function lege(schluessel, wert) {
@@ -78,18 +80,18 @@ export async function schluesselSichern(schluessel) {
 }
 
 export async function schluesselLaden() {
-  // Umzug von localStorage: einmalig uebernehmen, damit niemand neu entsperren muss.
-  const alt = localStorage.getItem('schluessel');
-  if (alt) {
-    await lege(schluesselName(), alt);
-    localStorage.removeItem('schluessel');
-  }
-  const gespeichert = await hole(schluesselName());
-  if (!gespeichert) return null;
   try {
+    // Umzug von localStorage: einmalig uebernehmen, damit niemand neu entsperren muss.
+    const alt = localStorage.getItem('schluessel');
+    if (alt) {
+      await lege(schluesselName(), alt);
+      localStorage.removeItem('schluessel');
+    }
+    const gespeichert = await hole(schluesselName());
+    if (!gespeichert) return null;
     return await crypto.subtle.importKey('raw', b64aus(gespeichert), 'AES-GCM', true, ['encrypt', 'decrypt']);
   } catch {
-    return null;
+    return null; // fuehrt nur zur Code-Abfrage, richtet keinen Schaden an
   }
 }
 
@@ -141,12 +143,12 @@ export async function ladeMeineDaten(schluessel) {
   // Ohne Schluessel liegt der Stand im Klartext - das gibt es nur bei der
   // lokalen Entwicklung, im Betrieb ist immer verschluesselt.
   if (!paket.iv) return vervollstaendige(paket);
-  if (!schluessel) return LEER();
-  try {
-    return vervollstaendige(await entschluesseln(paket, schluessel));
-  } catch {
-    return LEER();
-  }
+
+  // Ab hier gilt: Es SIND Daten da. Wenn sie sich nicht oeffnen lassen,
+  // muss das ein Fehler sein - niemals ein leerer Stand, der anschliessend
+  // ueber die echten Daten geschrieben wird.
+  if (!schluessel) throw new Error('Kein Schluessel zum Entsperren der eigenen Daten');
+  return vervollstaendige(await entschluesseln(paket, schluessel));
 }
 
 export async function speichereMeineDaten(daten, schluessel) {

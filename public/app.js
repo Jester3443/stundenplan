@@ -6,8 +6,8 @@ import {
   DATEN_URL,
   BENUTZER,
   setzeBenutzer,
-} from './shared/konfiguration.mjs?v=15';
-import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=15';
+} from './shared/konfiguration.mjs?v=16';
+import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=16';
 import {
   schluesselSichern,
   schluesselLaden,
@@ -16,8 +16,8 @@ import {
   speichereMeineDaten,
   setzePerson,
   LEER,
-} from './daten.mjs?v=15';
-import { symbolFuer } from './symbole.mjs?v=15';
+} from './daten.mjs?v=16';
+import { symbolFuer } from './symbole.mjs?v=16';
 import {
   initBereiche,
   zeichneAufgaben,
@@ -29,10 +29,10 @@ import {
   lernVorschau,
   lernenAm,
   aktualisiereStundenZaehler,
-} from './bereiche.mjs?v=15';
+} from './bereiche.mjs?v=16';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 15;
+const APP_VERSION = 16;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -67,6 +67,7 @@ const zustand = {
   ansicht: localStorage.getItem('ansicht') === 'woche' ? 'woche' : 'tag',
   gelesen: new Set(JSON.parse(localStorage.getItem('gelesen') ?? '[]')),
   meineDaten: LEER(),
+  datenGeladen: false, // erst nach erfolgreichem Laden darf gespeichert werden
 };
 
 let schluessel = null;
@@ -203,7 +204,16 @@ async function ladePlan({ frisch = false, leise = false } = {}) {
   }
 }
 
+/**
+ * Speichern ist nur erlaubt, wenn die eigenen Daten vorher erfolgreich
+ * gelesen wurden. Sonst wuerde ein Lesefehler dazu fuehren, dass ein leerer
+ * Stand ueber Noten, Aufgaben und Fehlzeiten geschrieben wird.
+ */
 const speichern = () => {
+  if (!zustand.datenGeladen) {
+    console.warn('Nicht gespeichert: eigene Daten wurden nie geladen.');
+    return Promise.resolve();
+  }
   // Abgeleitete Kurzfassung fuer den Hintergrunddienst mit ablegen.
   zustand.meineDaten.lernVorschau = lernVorschau();
   return speichereMeineDaten(zustand.meineDaten, schluessel);
@@ -1064,7 +1074,14 @@ async function starten({ frisch = false, leise = false } = {}) {
   try {
     const plan = await ladePlan({ frisch, leise });
     if (plan) zustand.plan = plan;
-    zustand.meineDaten = await ladeMeineDaten(schluessel);
+    try {
+      zustand.meineDaten = await ladeMeineDaten(schluessel);
+      zustand.datenGeladen = true;
+    } catch (fehler) {
+      // Eigene Daten nicht lesbar: den bisherigen Stand behalten und auf
+      // keinen Fall speichern - lieber diesmal ohne Noten und Aufgaben.
+      console.warn('Eigene Daten konnten nicht geladen werden:', fehler.message);
+    }
     // Vergangene Schultage in die Stundenstatistik aufnehmen (Basis der Fehlquote).
     if (aktualisiereStundenZaehler() > 0) await speichern();
     zustand.gewaehlt ??= startTag();
@@ -1093,6 +1110,7 @@ async function abmelden() {
   zustand.gewaehlt = null;
   zeichnen.zuletzt = null;
   zustand.meineDaten = LEER();
+  zustand.datenGeladen = false;
   $('inhalt').textContent = '';
   await starten();
   setzeTab('plan'); // nach dem Wechsel wieder beim Stundenplan anfangen

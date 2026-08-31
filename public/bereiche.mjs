@@ -1,9 +1,9 @@
 // Die drei Bereiche neben dem Stundenplan: Aufgaben, Noten, Mehr.
 // Bekommt beim Start alles Noetige von app.js uebergeben - so gibt es
 // keine gegenseitigen Importe zwischen den Dateien.
-import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=15';
-import { symbolFuer } from './symbole.mjs?v=15';
-import { neueId } from './daten.mjs?v=15';
+import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=16';
+import { symbolFuer } from './symbole.mjs?v=16';
+import { neueId } from './daten.mjs?v=16';
 
 let A = null; // die von app.js gereichten Hilfsmittel
 export function initBereiche(api) {
@@ -266,8 +266,20 @@ export function alleAufgaben() {
   return liste.sort((a, b) => a.datum.localeCompare(b.datum));
 }
 
-export const offeneAufgaben = () =>
-  alleAufgaben().filter((a) => !a.erledigt && tageBis(a.datum) >= 0);
+/**
+ * Ist die Stunde, zu der die Aufgabe gehoert, schon vorbei?
+ * Eine Hausaufgabe fuer eine Stunde, die heute Morgen war, muss man nicht
+ * mehr abhaken - sie verschwindet von selbst, sobald die Stunde durch ist.
+ */
+function schonVorbei(aufgabe) {
+  const abstand = tageBis(aufgabe.datum);
+  if (abstand < 0) return true;
+  if (abstand > 0) return false;
+  const jetzt = new Date();
+  return jetzt.getHours() * 60 + jetzt.getMinutes() >= A.minuten(aufgabe.stunde.bis);
+}
+
+export const offeneAufgaben = () => alleAufgaben().filter((a) => !a.erledigt && !schonVorbei(a));
 
 function aufgabenZeile(aufgabe) {
   const el = document.createElement('div');
@@ -507,7 +519,9 @@ export function zeichneAufgaben(ziel) {
 
   // --- Hausaufgaben ---
   const alle = alleAufgaben();
-  const offen = alle.filter((a) => !a.erledigt && tageBis(a.datum) >= 0);
+  const offen = alle.filter((a) => !a.erledigt && !schonVorbei(a));
+  // Erledigtes der letzten Woche bleibt sichtbar - zum Nachschauen,
+  // nicht als Aufgabe.
   const erledigt = alle.filter((a) => a.erledigt && tageBis(a.datum) >= -7);
 
   ziel.append(ueberschrift(`Hausaufgaben${offen.length ? ` · ${offen.length} offen` : ''}`));
