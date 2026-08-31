@@ -81,6 +81,13 @@ async function holeRoh(frisch) {
   if (DATEN_URL) {
     const cloud = await fetch(`${DATEN_URL.replace('{benutzer}', person)}${anhang}`, einstellung).catch(() => null);
     if (cloud?.ok) return { verschluesselt: true, paket: await cloud.json() };
+
+    // Rückfall auf den alten Dateinamen: GitHubs Auslieferung braucht für neu
+    // angelegte Dateien einige Minuten. Ohne das bliebe die App so lange leer.
+    if (person === 'jasper') {
+      const alt = await fetch(`${DATEN_URL.replace('plan-{benutzer}', 'plan')}${anhang}`, einstellung).catch(() => null);
+      if (alt?.ok) return { verschluesselt: true, paket: await alt.json() };
+    }
   }
 
   // ... sonst von der eigenen Adresse.
