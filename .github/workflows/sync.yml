@@ -44,7 +44,7 @@ jobs:
           UNTIS_PASSWORD: ${{ secrets.UNTIS_PASSWORD }}
           APP_CODE: ${{ secrets.APP_CODE }}
           APP_CODE_JASPER: ${{ secrets.APP_CODE }}
-          APP_CODE_FREUNDIN: ${{ secrets.APP_CODE_FREUNDIN }}
+          APP_CODE_CATALINA: ${{ secrets.APP_CODE_CATALINA }}
           # Zuletzt veroeffentlichter Stand als Vergleichsbasis
           BASIS_URL: https://raw.githubusercontent.com/${{ github.repository }}
           # Oeffentliches Protokoll -> keine Inhalte ausgeben

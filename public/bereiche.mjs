@@ -1,9 +1,9 @@
 // Die drei Bereiche neben dem Stundenplan: Aufgaben, Noten, Mehr.
 // Bekommt beim Start alles Noetige von app.js uebergeben - so gibt es
 // keine gegenseitigen Importe zwischen den Dateien.
-import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=14';
-import { symbolFuer } from './symbole.mjs?v=14';
-import { neueId } from './daten.mjs?v=14';
+import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=15';
+import { symbolFuer } from './symbole.mjs?v=15';
+import { neueId } from './daten.mjs?v=15';
 
 let A = null; // die von app.js gereichten Hilfsmittel
 export function initBereiche(api) {

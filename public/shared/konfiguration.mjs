@@ -51,9 +51,9 @@ export const BENUTZER = {
     ],
   },
 
-  // Zweite Person - laeuft ueber den Jahrgangsplan, braucht keinen eigenen Zugang.
-  freundin: {
-    name: 'Freundin',
+  // Catalina - laeuft ueber den Jahrgangsplan, braucht keinen eigenen Zugang.
+  catalina: {
+    name: 'Catalina',
     quelle: 'klasse',
     klasse: '12',
     kurse: [
@@ -66,7 +66,7 @@ export const BENUTZER = {
       { kuerzel: 'wn1', lehrer: 'BUE', fach: 'Werte und Normen', niveau: 'gA', farbe: 'tuerkis' },
       // Spanisch hat 4 Bloecke -> neu beginnende Fremdsprache, also snN1.
       { kuerzel: 'snN1', lehrer: 'rio', fach: 'Spanisch',        niveau: 'gA', farbe: 'gelb' },
-      // NOCH ZU BESTAETIGEN: drei Seminarfaecher laufen parallel (sf1/sf2/sf3).
+      // Bestaetigt: gleiches Seminarfach wie Jasper, bei Herrn Eikhorst.
       { kuerzel: 'sf3', lehrer: 'eik', fach: 'Seminarfach',      niveau: '',   farbe: 'grau' },
     ],
   },

@@ -6,8 +6,8 @@ import {
   DATEN_URL,
   BENUTZER,
   setzeBenutzer,
-} from './shared/konfiguration.mjs?v=14';
-import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=14';
+} from './shared/konfiguration.mjs?v=15';
+import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=15';
 import {
   schluesselSichern,
   schluesselLaden,
@@ -16,8 +16,8 @@ import {
   speichereMeineDaten,
   setzePerson,
   LEER,
-} from './daten.mjs?v=14';
-import { symbolFuer } from './symbole.mjs?v=14';
+} from './daten.mjs?v=15';
+import { symbolFuer } from './symbole.mjs?v=15';
 import {
   initBereiche,
   zeichneAufgaben,
@@ -29,10 +29,10 @@ import {
   lernVorschau,
   lernenAm,
   aktualisiereStundenZaehler,
-} from './bereiche.mjs?v=14';
+} from './bereiche.mjs?v=15';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 14;
+const APP_VERSION = 15;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
