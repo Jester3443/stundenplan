@@ -1533,3 +1533,17 @@ body {
 }
 .aufgabe-kopf { width: 100%; }
 .tages-trenner.eile-heute, .tages-trenner.eile-morgen { color: var(--eile-farbe); }
+
+/* Warnung, wenn die eigenen Eintraege nicht ladbar sind */
+.daten-warnung {
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--fl-rot) 16%, var(--flaeche));
+  border: 0.5px solid color-mix(in srgb, var(--fl-rot) 40%, transparent);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text);
+}
+.daten-warnung strong { display: block; color: var(--fl-rot); margin-bottom: 3px; }
+.daten-warnung span { color: var(--text-leise); }

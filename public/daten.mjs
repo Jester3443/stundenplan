@@ -5,14 +5,19 @@
 // Worker NICHT zugreifen. Er muss aber abends beim Eintreffen der
 // Push-Nachricht nachsehen koennen, welche Hausaufgaben offen sind.
 // Alles liegt verschluesselt - derselbe Schluessel wie beim Stundenplan.
-import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=18';
+import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=19';
 
 const DB_NAME = 'stundenplan';
 const LADEN = 'werte';
 
 // Jede Person hat ihre eigene Ablage - auch wenn beide dasselbe Geraet nutzen.
 let person = 'jasper';
-export const setzePerson = (name) => { person = name; };
+export const setzePerson = (name) => {
+  person = name;
+  // Auch in der Datenbank vermerken - der Hintergrunddienst braucht es,
+  // um bei Push-Nachrichten die richtigen Daten zu entschluesseln.
+  lege('benutzer', name).catch(() => {});
+};
 const schluesselName = () => (person === 'jasper' ? 'schluessel' : `schluessel:${person}`);
 const datenName = () => (person === 'jasper' ? 'meineDaten' : `meineDaten:${person}`);
 
@@ -35,7 +40,7 @@ function db() {
       anfrage.onerror = () => fehler(anfrage.error);
       anfrage.onblocked = () => fehler(new Error('Datenbank blockiert'));
     }),
-    new Promise((_, fehler) => setTimeout(() => fehler(new Error('Datenbank antwortet nicht')), 3000)),
+    new Promise((_, fehler) => setTimeout(() => fehler(new Error('Datenbank antwortet nicht')), 8000)),
   ]);
 }
 
@@ -65,6 +70,63 @@ async function lege(schluessel, wert) {
     });
   } catch {
     /* Speichern fehlgeschlagen - die App laeuft trotzdem weiter */
+  }
+}
+
+// ------------------------------------------------------- Cloud-Sicherung
+// Verschluesselte Kopie der eigenen Daten bei Firestore. Grund: iOS darf
+// den App-Speicher unter Platzdruck raeumen - "fuer immer" gibt es nur
+// ausserhalb des Geraets. Der Ablageort wird aus dem Schluessel abgeleitet
+// und ist ohne den Zugangscode nicht einmal auffindbar.
+
+const SICHERUNG_BASIS =
+  'https://firestore.googleapis.com/v1/projects/stundenplan-jasper/databases/(default)/documents/sicherung';
+
+/** Unauffindbarer, aber deterministischer Ablagename je Person. */
+async function sicherungsId(schluessel) {
+  const roh = await crypto.subtle.exportKey('raw', schluessel);
+  const hash = await crypto.subtle.digest('SHA-256', roh);
+  return [...new Uint8Array(hash)].slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+let letzteSicherung = ''; // nicht zweimal dasselbe hochladen
+
+/** Laedt das verschluesselte Paket in die Cloud - still, Fehler sind ok. */
+export async function sicherungHochladen(paket, schluessel) {
+  try {
+    const kennung = `${paket.iv}|${paket.daten.length}`;
+    if (kennung === letzteSicherung) return;
+    const id = await sicherungsId(schluessel);
+    const antwort = await fetch(`${SICHERUNG_BASIS}/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fields: {
+          iv: { stringValue: paket.iv },
+          daten: { stringValue: paket.daten },
+          stand: { stringValue: new Date().toISOString().slice(0, 16) },
+        },
+      }),
+    });
+    if (antwort.ok) letzteSicherung = kennung;
+  } catch {
+    /* offline oder blockiert - naechster Versuch beim naechsten Speichern */
+  }
+}
+
+/** Holt die Cloud-Sicherung - null, wenn keine existiert. */
+export async function sicherungHolen(schluessel) {
+  try {
+    const id = await sicherungsId(schluessel);
+    const antwort = await fetch(`${SICHERUNG_BASIS}/${id}`);
+    if (!antwort.ok) return null;
+    const dok = await antwort.json();
+    const iv = dok.fields?.iv?.stringValue;
+    const daten = dok.fields?.daten?.stringValue;
+    if (!iv || !daten) return null;
+    return { iv, daten };
+  } catch {
+    return null;
   }
 }
 
@@ -123,7 +185,16 @@ export const LEER = () => ({
 const vervollstaendige = (daten) => ({ ...LEER(), ...(daten ?? {}) });
 
 export async function ladeMeineDaten(schluessel) {
-  const paket = await hole(datenName());
+  let paket = await hole(datenName());
+
+  // Lokal nichts da (neues Geraet oder von iOS geraeumt)? Cloud-Sicherung.
+  if (!paket && schluessel) {
+    const sicherung = await sicherungHolen(schluessel);
+    if (sicherung) {
+      await lege(datenName(), sicherung);
+      paket = sicherung;
+    }
+  }
 
   // Erstmaliger Umzug: die alten Notizen aus localStorage uebernehmen.
   if (!paket) {
@@ -157,7 +228,14 @@ export async function ladeMeineDaten(schluessel) {
 export async function speichereMeineDaten(daten, schluessel) {
   // Auch ohne Schluessel speichern - sonst gingen Eintraege bei der
   // lokalen Entwicklung stillschweigend verloren.
-  await lege(datenName(), schluessel ? await verschluesseln(daten, schluessel) : daten);
+  if (!schluessel) {
+    await lege(datenName(), daten);
+    return;
+  }
+  const paket = await verschluesseln(daten, schluessel);
+  await lege(datenName(), paket);
+  // Cloud-Sicherung nebenlaeufig - darf das Speichern nie ausbremsen.
+  sicherungHochladen(paket, schluessel);
 }
 
 /** Kleine Kennung fuer neue Eintraege - ohne Zufallsquelle, damit es stabil bleibt. */

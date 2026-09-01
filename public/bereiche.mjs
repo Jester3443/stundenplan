@@ -1,9 +1,9 @@
 // Die drei Bereiche neben dem Stundenplan: Aufgaben, Noten, Mehr.
 // Bekommt beim Start alles Noetige von app.js uebergeben - so gibt es
 // keine gegenseitigen Importe zwischen den Dateien.
-import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=18';
-import { symbolFuer } from './symbole.mjs?v=18';
-import { neueId } from './daten.mjs?v=18';
+import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=19';
+import { symbolFuer } from './symbole.mjs?v=19';
+import { neueId } from './daten.mjs?v=19';
 
 let A = null; // die von app.js gereichten Hilfsmittel
 export function initBereiche(api) {
@@ -42,6 +42,12 @@ let eingabeStand = null;
  * felder: [{ name, label, typ, optionen?, wert?, pflicht? }]
  */
 export function oeffneEingabe({ titel, unterzeile = '', felder, beimSichern, beimLoeschen = null }) {
+  // Solange die eigenen Daten nicht geladen sind, wuerde jeder neue Eintrag
+  // ins Leere laufen - dann lieber ehrlich absagen.
+  if (!A.zustand.datenGeladen) {
+    alert('Deine Einträge können gerade nicht geladen werden – Eintragen ist gesperrt, damit nichts verloren geht. Schließe die App einmal komplett und öffne sie neu.');
+    return;
+  }
   eingabeStand = { felder, beimSichern, beimLoeschen };
 
   $('eingabeTitel').textContent = titel;

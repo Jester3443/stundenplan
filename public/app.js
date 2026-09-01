@@ -6,8 +6,8 @@ import {
   DATEN_URL,
   BENUTZER,
   setzeBenutzer,
-} from './shared/konfiguration.mjs?v=18';
-import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=18';
+} from './shared/konfiguration.mjs?v=19';
+import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=19';
 import {
   schluesselSichern,
   schluesselLaden,
@@ -16,8 +16,8 @@ import {
   speichereMeineDaten,
   setzePerson,
   LEER,
-} from './daten.mjs?v=18';
-import { symbolFuer } from './symbole.mjs?v=18';
+} from './daten.mjs?v=19';
+import { symbolFuer } from './symbole.mjs?v=19';
 import {
   initBereiche,
   zeichneAufgaben,
@@ -30,10 +30,10 @@ import {
   aufgabenVorschau,
   lernenAm,
   aktualisiereStundenZaehler,
-} from './bereiche.mjs?v=18';
+} from './bereiche.mjs?v=19';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 18;
+const APP_VERSION = 19;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -830,6 +830,10 @@ function zeichneWoche(ziel) {
 let offeneStunde = null;
 
 function oeffneStunde(s) {
+  if (!zustand.datenGeladen) {
+    alert('Deine Einträge können gerade nicht geladen werden – Eintragen ist gesperrt, damit nichts verloren geht. Schließe die App einmal komplett und öffne sie neu.');
+    return;
+  }
   offeneStunde = s;
   const eigene = eintragVon(s);
   const d = alsDatum(s.datum);
@@ -1045,6 +1049,18 @@ function zeichnen() {
   const offen = offeneAufgaben().length + lernenAm(iso(new Date())).length;
   $('tabPunktAufgaben').hidden = offen === 0;
 
+  // Deutlich warnen, wenn die eigenen Eintraege nicht ladbar sind -
+  // frueher passierte das stumm, und neue Eintraege gingen verloren.
+  if (zustand.plan && !zustand.datenGeladen) {
+    const warnung = document.createElement('div');
+    warnung.className = 'daten-warnung';
+    warnung.innerHTML =
+      '<strong>Deine Einträge sind gerade nicht verfügbar.</strong>' +
+      '<span>Noten, Aufgaben und Fehlzeiten erscheinen wieder, sobald das Laden klappt. ' +
+      'Eintragen ist so lange gesperrt, damit nichts verloren geht. Schließe die App einmal komplett und öffne sie neu.</span>';
+    inhalt.prepend(warnung);
+  }
+
   [...inhalt.children].forEach((el, i) => el.style.setProperty('--i', i));
 }
 
@@ -1077,13 +1093,18 @@ async function starten({ frisch = false, leise = false } = {}) {
   try {
     const plan = await ladePlan({ frisch, leise });
     if (plan) zustand.plan = plan;
-    try {
-      zustand.meineDaten = await ladeMeineDaten(schluessel);
-      zustand.datenGeladen = true;
-    } catch (fehler) {
-      // Eigene Daten nicht lesbar: den bisherigen Stand behalten und auf
-      // keinen Fall speichern - lieber diesmal ohne Noten und Aufgaben.
-      console.warn('Eigene Daten konnten nicht geladen werden:', fehler.message);
+    if (!zustand.datenGeladen) {
+      // Bis zu drei Versuche - ein kalt startendes iPhone braucht manchmal
+      // einen Moment, bis die Datenbank antwortet.
+      for (let versuch = 1; versuch <= 3 && !zustand.datenGeladen; versuch++) {
+        try {
+          zustand.meineDaten = await ladeMeineDaten(schluessel);
+          zustand.datenGeladen = true;
+        } catch (fehler) {
+          console.warn(`Eigene Daten, Versuch ${versuch}:`, fehler.message);
+          if (versuch < 3) await new Promise((w) => setTimeout(w, 1500));
+        }
+      }
     }
     // Vergangene Schultage in die Stundenstatistik aufnehmen (Basis der Fehlquote).
     if (aktualisiereStundenZaehler() > 0) await speichern();
@@ -1232,6 +1253,9 @@ setInterval(() => {
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
+
+// iOS/Browser bitten, den Speicher dieser App nicht zu raeumen.
+navigator.storage?.persist?.().catch(() => {});
 
 setzeTab('plan');
 starten();

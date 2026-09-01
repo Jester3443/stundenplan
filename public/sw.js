@@ -2,17 +2,17 @@
 // reichert Push-Nachrichten um die eigenen Hausaufgaben an.
 // WICHTIG: Bei jedem App-Update die Versionsnummer hier UND die ?v=-Anhaenge
 // in index.html/app.js gemeinsam hochzaehlen.
-const CACHE = 'stundenplan-v18';
+const CACHE = 'stundenplan-v19';
 const HUELLE = [
   './',
   './index.html',
-  './styles.css?v=18',
-  './app.js?v=18',
-  './bereiche.mjs?v=18',
-  './daten.mjs?v=18',
-  './symbole.mjs?v=18',
-  './shared/konfiguration.mjs?v=18',
-  './shared/krypto.mjs?v=18',
+  './styles.css?v=19',
+  './app.js?v=19',
+  './bereiche.mjs?v=19',
+  './daten.mjs?v=19',
+  './symbole.mjs?v=19',
+  './shared/konfiguration.mjs?v=19',
+  './shared/krypto.mjs?v=19',
   './manifest.webmanifest',
   './icons/icon-180.png',
   './icons/icon-192.png',
@@ -48,6 +48,11 @@ const FAECHER = {
   GE1: 'Geschichte',
   EK1: 'Erdkunde',
   sf3: 'Seminarfach',
+  // Catalinas zusaetzliche Kurse
+  ch1: 'Chemie',
+  PO1: 'Politik',
+  wn1: 'Werte und Normen',
+  snN1: 'Spanisch',
 };
 
 const b64aus = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
@@ -66,11 +71,23 @@ function ausDatenbank(name) {
   });
 }
 
+/**
+ * Auf diesem Geraet angemeldete Person - die App vermerkt sie in der
+ * Datenbank, weil der Hintergrunddienst kein localStorage lesen kann.
+ * Ohne den Vermerk laese er auf Catalinas Handy immer Jaspers (leere) Ablage.
+ */
+async function speicherNamen() {
+  const person = (await ausDatenbank('benutzer')) ?? 'jasper';
+  const anhang = person === 'jasper' ? '' : `:${person}`;
+  return { schluessel: `schluessel${anhang}`, daten: `meineDaten${anhang}` };
+}
+
 /** Offene eigene Aufgaben und Lernetappen fuer ein Datum. */
 async function eigeneAufgaben(datum) {
   try {
-    const schluesselB64 = await ausDatenbank('schluessel');
-    const paket = await ausDatenbank('meineDaten');
+    const namen = await speicherNamen();
+    const schluesselB64 = await ausDatenbank(namen.schluessel);
+    const paket = await ausDatenbank(namen.daten);
     if (!schluesselB64 || !paket?.iv) return [];
 
     const schluessel = await crypto.subtle.importKey('raw', b64aus(schluesselB64), 'AES-GCM', false, ['decrypt']);
@@ -94,8 +111,9 @@ async function eigeneAufgaben(datum) {
 /** Nur die offenen Hausaufgaben fuer ein Datum (fuer die 15:40-Erinnerung). */
 async function offeneAufgabenFuer(datum) {
   try {
-    const schluesselB64 = await ausDatenbank('schluessel');
-    const paket = await ausDatenbank('meineDaten');
+    const namen = await speicherNamen();
+    const schluesselB64 = await ausDatenbank(namen.schluessel);
+    const paket = await ausDatenbank(namen.daten);
     if (!schluesselB64 || !paket?.iv) return [];
     const schluessel = await crypto.subtle.importKey('raw', b64aus(schluesselB64), 'AES-GCM', false, ['decrypt']);
     const klar = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64aus(paket.iv) }, schluessel, b64aus(paket.daten));

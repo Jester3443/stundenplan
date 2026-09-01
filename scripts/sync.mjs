@@ -215,8 +215,8 @@ for (const [kennung, person] of Object.entries(BENUTZER)) {
           const text = termintexte.get(`${tag.datum}|${s.von}`);
           return text ? { ...s, fachName: text, text: s.text || text } : s;
         }
-        // Hausaufgaben stammen aus dem persoenlichen Zugang - nur dort zuordnen.
-        if (person.quelle !== 'person') return s;
+        // Hausaufgaben stammen zwar aus Jaspers persoenlichem Zugang, gelten
+        // aber fuer den KURS - wer denselben Kurs hat, bekommt sie auch.
         const aufgaben = hausaufgaben
           .filter((h) => h.faellig === tag.datum && h.fach === s.kurs)
           .map((h) => ({ text: h.text, anmerkung: h.anmerkung, lehrer: h.lehrer, erledigt: h.erledigt }));

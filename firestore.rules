@@ -1,0 +1,25 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Verschluesselte Geraete-Sicherungen. Inhalt ist AES-256-GCM-Chiffrat -
+    // ohne den Zugangscode der jeweiligen Person wertlos.
+    // Loeschen ist grundsaetzlich verboten; Schreiben nur in gueltiger Form.
+    match /sicherung/{kennung} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if request.resource.data.keys().hasOnly(['iv', 'daten', 'stand'])
+        && request.resource.data.iv is string
+        && request.resource.data.iv.size() < 64
+        && request.resource.data.daten is string
+        && request.resource.data.daten.size() < 900000
+        && request.resource.data.stand is string
+        && request.resource.data.stand.size() < 40;
+      allow delete: if false;
+    }
+
+    // Alles andere bleibt zu.
+    match /{rest=**} {
+      allow read, write: if false;
+    }
+  }
+}
