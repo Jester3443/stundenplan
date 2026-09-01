@@ -1,7 +1,29 @@
 // Gegenstueck zu public/shared/krypto.mjs fuer Node.
 // Muss exakt dieselben Parameter benutzen, sonst kann der Browser nicht lesen.
-import { pbkdf2Sync, randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
+import { pbkdf2Sync, randomBytes, createCipheriv, createDecipheriv, createHash } from 'node:crypto';
 import { KRYPTO } from '../public/shared/krypto.mjs';
+
+/** Denselben Schluessel ableiten, den auch die App benutzt. */
+export const schluesselAus = (code, salzB64, runden = KRYPTO.runden) =>
+  pbkdf2Sync(code, Buffer.from(salzB64, 'base64'), runden, KRYPTO.schluesselBits / 8, 'sha256');
+
+/**
+ * Ablagename in der Cloud - muss Zeichen fuer Zeichen dem entsprechen,
+ * was public/daten.mjs berechnet, sonst findet der Abruf nichts.
+ */
+export const ablageId = (schluessel, zweck = '') =>
+  createHash('sha256').update(Buffer.concat([schluessel, Buffer.from(zweck, 'utf8')]))
+    .digest('hex').slice(0, 32);
+
+/** Entschluesselt ein Paket, dessen Schluessel schon abgeleitet ist ({ iv, daten }). */
+export function entschluesselnMitSchluessel(paket, schluessel) {
+  const iv = Buffer.from(paket.iv, 'base64');
+  const alles = Buffer.from(paket.daten, 'base64');
+  const inhalt = alles.subarray(0, alles.length - 16);
+  const decipher = createDecipheriv('aes-256-gcm', schluessel, iv);
+  decipher.setAuthTag(alles.subarray(alles.length - 16));
+  return JSON.parse(Buffer.concat([decipher.update(inhalt), decipher.final()]).toString('utf8'));
+}
 
 /**
  * Verschluesselt ein Objekt mit dem Zugangscode.

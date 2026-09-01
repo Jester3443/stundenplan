@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import 'dotenv/config';
 import webpush from 'web-push';
 import { BENUTZER } from '../public/shared/konfiguration.mjs';
+import { anmeldungenFuer } from './push-ziele.mjs';
 
 const OEFFENTLICH = (process.env.VAPID_PUBLIC ?? '').trim();
 const PRIVAT = (process.env.VAPID_PRIVATE ?? '').trim();
@@ -16,14 +17,6 @@ if (!OEFFENTLICH || !PRIVAT) {
 }
 webpush.setVapidDetails(KONTAKT, OEFFENTLICH, PRIVAT);
 
-/** Push-Anmeldung je Person: PUSH_SUBSCRIPTION_JASPER, ..._FREUNDIN ... */
-const aboFuer = (kennung) =>
-  (
-    process.env[`PUSH_SUBSCRIPTION_${kennung.toUpperCase()}`] ??
-    (kennung === 'jasper' ? process.env.PUSH_SUBSCRIPTION : '') ??
-    ''
-  ).trim();
-
 const TAGE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 const kurz = (a) => {
   const d = new Date(`${a.datum}T12:00:00`);
@@ -34,10 +27,13 @@ const kurz = (a) => {
 const RANG = { entfall: 0, vertretung: 1, raum: 2, hausaufgabe: 3, zurueck: 4, neu: 5, gestrichen: 6, hinweis: 7 };
 
 export async function sendeAn(abo, inhalt) {
-  const liste = (() => {
-    const gelesen = JSON.parse(abo);
-    return Array.isArray(gelesen) ? gelesen : [gelesen];
-  })();
+  // Nimmt entweder eine fertige Liste oder den JSON-Text aus einem Secret.
+  const liste = Array.isArray(abo)
+    ? abo
+    : (() => {
+        const gelesen = JSON.parse(abo);
+        return Array.isArray(gelesen) ? gelesen : [gelesen];
+      })();
 
   let verschickt = 0;
   for (const anmeldung of liste) {
@@ -59,8 +55,11 @@ export async function sendeAn(abo, inhalt) {
 let gesamt = 0;
 
 for (const kennung of Object.keys(BENUTZER)) {
-  const abo = aboFuer(kennung);
-  if (!abo) continue;
+  const abo = await anmeldungenFuer(kennung);
+  if (!abo.length) {
+    console.log(`${kennung}: keine Push-Anmeldung hinterlegt.`);
+    continue;
+  }
 
   let plan;
   try {

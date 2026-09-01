@@ -1,9 +1,9 @@
 // Die drei Bereiche neben dem Stundenplan: Aufgaben, Noten, Mehr.
 // Bekommt beim Start alles Noetige von app.js uebergeben - so gibt es
 // keine gegenseitigen Importe zwischen den Dateien.
-import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=19';
-import { symbolFuer } from './symbole.mjs?v=19';
-import { neueId } from './daten.mjs?v=19';
+import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=20';
+import { symbolFuer } from './symbole.mjs?v=20';
+import { neueId } from './daten.mjs?v=20';
 
 let A = null; // die von app.js gereichten Hilfsmittel
 export function initBereiche(api) {
@@ -45,7 +45,7 @@ export function oeffneEingabe({ titel, unterzeile = '', felder, beimSichern, bei
   // Solange die eigenen Daten nicht geladen sind, wuerde jeder neue Eintrag
   // ins Leere laufen - dann lieber ehrlich absagen.
   if (!A.zustand.datenGeladen) {
-    alert('Deine Einträge können gerade nicht geladen werden – Eintragen ist gesperrt, damit nichts verloren geht. Schließe die App einmal komplett und öffne sie neu.');
+    alert('Deine Einträge lassen sich auf diesem Gerät gerade nicht öffnen und die Sicherung ist nicht erreichbar. Eintragen ist so lange gesperrt, damit nichts überschrieben wird. Prüfe die Internetverbindung und tippe oben auf ⟳.');
     return;
   }
   eingabeStand = { felder, beimSichern, beimLoeschen };
@@ -887,6 +887,7 @@ export function zeichneNoten(ziel) {
 export function aktualisiereStundenZaehler() {
   const daten = A.zustand.meineDaten;
   daten.stundenSumme ??= {};
+  daten.tagesStunden ??= {};
   daten.gezaehlteTage ??= {};
 
   let neueTage = 0;
@@ -895,14 +896,29 @@ export function aktualisiereStundenZaehler() {
     if (daten.gezaehlteTage[tag.datum]) continue;  // schon erfasst
     if (!tag.stunden.length) continue;             // kein Plan vorhanden
 
+    // Je Tag ablegen statt hochzuzaehlen: nur so lassen sich Handy und iPad
+    // zusammenfuehren, ohne dass ein Tag doppelt oder gar nicht zaehlt.
+    const proTag = {};
     for (const s of tag.stunden) {
       if (!s.kurs || s.status === 'CANCELLED') continue;
-      daten.stundenSumme[s.kurs] = (daten.stundenSumme[s.kurs] ?? 0) + 1;
+      proTag[s.kurs] = (proTag[s.kurs] ?? 0) + 1;
     }
+    daten.tagesStunden[tag.datum] = proTag;
     daten.gezaehlteTage[tag.datum] = true;
     neueTage++;
   }
   return neueTage;
+}
+
+/**
+ * Wie viel Unterricht hat in einem Fach stattgefunden?
+ * Altbestand (vor der Umstellung auf Tageswerte) plus die Tageswerte.
+ */
+export function stattgefundeneStunden(kuerzel) {
+  const daten = A.zustand.meineDaten;
+  let summe = daten.stundenSumme?.[kuerzel] ?? 0;
+  for (const tag of Object.values(daten.tagesStunden ?? {})) summe += tag[kuerzel] ?? 0;
+  return summe;
 }
 
 /**
@@ -1024,7 +1040,7 @@ export function fehlAuswertung() {
     // Bezugsgroesse ist der hochgerechnete Plan seit Schuljahresbeginn.
     // Der mitgezaehlte Wert dient nur als Untergrenze, falls die
     // Hochrechnung (z. B. am Schuljahresanfang) noch klein ist.
-    const stattgefunden = Math.max(geplant[kurs.kuerzel] ?? 0, daten.stundenSumme?.[kurs.kuerzel] ?? 0);
+    const stattgefunden = Math.max(geplant[kurs.kuerzel] ?? 0, stattgefundeneStunden(kurs.kuerzel));
     const { gesamt, unentschuldigt } = verpasstIn(kurs.kuerzel);
     if (!stattgefunden && !gesamt) continue;
 

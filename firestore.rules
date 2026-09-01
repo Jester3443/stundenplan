@@ -17,6 +17,21 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Push-Anmeldungen der Geraete - ebenfalls verschluesselt abgelegt,
+    // damit sich der Abruf niemand von Hand eintragen muss.
+    match /push/{kennung} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if request.resource.data.keys().hasOnly(['iv', 'daten', 'stand'])
+        && request.resource.data.iv is string
+        && request.resource.data.iv.size() < 64
+        && request.resource.data.daten is string
+        && request.resource.data.daten.size() < 20000
+        && request.resource.data.stand is string
+        && request.resource.data.stand.size() < 40;
+      allow delete: if false;
+    }
+
     // Alles andere bleibt zu.
     match /{rest=**} {
       allow read, write: if false;

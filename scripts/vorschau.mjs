@@ -9,18 +9,13 @@ import { readFile } from 'node:fs/promises';
 import 'dotenv/config';
 import webpush from 'web-push';
 import { BENUTZER } from '../public/shared/konfiguration.mjs';
+import { anmeldungenFuer } from './push-ziele.mjs';
 
 const ERLAUBT = ['abend', 'morgen', 'aufgaben'];
 const ART = ERLAUBT.includes(process.argv[2]) ? process.argv[2] : 'abend';
 
 const OEFFENTLICH = (process.env.VAPID_PUBLIC ?? '').trim();
 const PRIVAT = (process.env.VAPID_PRIVATE ?? '').trim();
-const aboFuer = (kennung) =>
-  (
-    process.env[`PUSH_SUBSCRIPTION_${kennung.toUpperCase()}`] ??
-    (kennung === 'jasper' ? process.env.PUSH_SUBSCRIPTION : '') ??
-    ''
-  ).trim();
 const KONTAKT = (process.env.VAPID_KONTAKT ?? 'https://stundenplan-jasper.web.app').trim();
 
 if (!OEFFENTLICH || !PRIVAT) {
@@ -46,8 +41,8 @@ webpush.setVapidDetails(KONTAKT, OEFFENTLICH, PRIVAT);
 let gesamtVerschickt = 0;
 
 for (const kennung of Object.keys(BENUTZER)) {
-  const empfaenger = aboFuer(kennung);
-  if (!empfaenger) continue;
+  const anmeldungen = await anmeldungenFuer(kennung);
+  if (!anmeldungen.length) continue;
 
   let plan;
   try {
@@ -68,13 +63,6 @@ for (const kennung of Object.keys(BENUTZER)) {
   // App selbst. Gesendet wird nur, wenn morgen ueberhaupt Unterricht ist.
   if (ART === 'aufgaben') {
     if (!tag.stunden.some((s) => s.kurs && s.status !== 'CANCELLED')) continue;
-    let anmeldungen;
-    try {
-      const gelesen = JSON.parse(empfaenger);
-      anmeldungen = Array.isArray(gelesen) ? gelesen : [gelesen];
-    } catch {
-      continue;
-    }
     for (const anmeldung of anmeldungen) {
       try {
         await webpush.sendNotification(
@@ -131,15 +119,6 @@ for (const kennung of Object.keys(BENUTZER)) {
   // Abends nur melden, wenn es wirklich etwas zu sagen gibt.
   if (!titel && !hausaufgaben.length) continue;
   titel ??= hausaufgaben.length === 1 ? 'Eine Hausaufgabe für morgen' : `${hausaufgaben.length} Hausaufgaben für morgen`;
-
-  let anmeldungen;
-  try {
-    const gelesen = JSON.parse(empfaenger);
-    anmeldungen = Array.isArray(gelesen) ? gelesen : [gelesen];
-  } catch {
-    console.error(`Push-Anmeldung fuer ${kennung} ist kein gueltiges JSON.`);
-    continue;
-  }
 
   for (const anmeldung of anmeldungen) {
     try {

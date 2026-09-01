@@ -6,8 +6,8 @@ import {
   DATEN_URL,
   BENUTZER,
   setzeBenutzer,
-} from './shared/konfiguration.mjs?v=19';
-import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=19';
+} from './shared/konfiguration.mjs?v=20';
+import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=20';
 import {
   schluesselSichern,
   schluesselLaden,
@@ -15,9 +15,13 @@ import {
   ladeMeineDaten,
   speichereMeineDaten,
   setzePerson,
+  setzeFremdaenderung,
+  abgleichen,
+  verschmelze,
+  pushAnmeldungHinterlegen,
   LEER,
-} from './daten.mjs?v=19';
-import { symbolFuer } from './symbole.mjs?v=19';
+} from './daten.mjs?v=20';
+import { symbolFuer } from './symbole.mjs?v=20';
 import {
   initBereiche,
   zeichneAufgaben,
@@ -30,10 +34,10 @@ import {
   aufgabenVorschau,
   lernenAm,
   aktualisiereStundenZaehler,
-} from './bereiche.mjs?v=19';
+} from './bereiche.mjs?v=20';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 19;
+const APP_VERSION = 20;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -220,6 +224,15 @@ const speichern = () => {
   zustand.meineDaten.aufgabenVorschau = aufgabenVorschau();
   return speichereMeineDaten(zustand.meineDaten, schluessel);
 };
+
+// Der Cloud-Abgleich hat etwas von einem anderen Gerät gebracht (iPhone <-> iPad).
+// Noch einmal verschmelzen statt einfach zu ersetzen: Falls in der Zwischenzeit
+// hier etwas eingetragen wurde, bleibt es erhalten.
+setzeFremdaenderung((zusammen) => {
+  zustand.meineDaten = verschmelze(zustand.meineDaten, zusammen);
+  zeichnen.zuletzt = null;
+  zeichnen();
+});
 
 // ------------------------------------------------------------- Hilfsmittel
 
@@ -830,10 +843,6 @@ function zeichneWoche(ziel) {
 let offeneStunde = null;
 
 function oeffneStunde(s) {
-  if (!zustand.datenGeladen) {
-    alert('Deine Einträge können gerade nicht geladen werden – Eintragen ist gesperrt, damit nichts verloren geht. Schließe die App einmal komplett und öffne sie neu.');
-    return;
-  }
   offeneStunde = s;
   const eigene = eintragVon(s);
   const d = alsDatum(s.datum);
@@ -894,6 +903,15 @@ function oeffneStunde(s) {
 
   $('notizAufgabe').value = eigene.aufgabe ?? '';
   $('notizText').value = eigene.notiz ?? '';
+
+  // Die Stunde darf man immer ansehen. Nur das Schreiben wird gesperrt,
+  // solange die eigenen Einträge nicht sicher geladen sind.
+  const gesperrt = !zustand.datenGeladen;
+  $('notizAufgabe').disabled = gesperrt;
+  $('notizText').disabled = gesperrt;
+  $('notizSichern').disabled = gesperrt;
+  $('notizLoeschen').disabled = gesperrt;
+  $('notizSichern').textContent = gesperrt ? 'Nicht verfügbar' : 'Sichern';
 
   $('stundeModal').hidden = false;
   $('modalHintergrund').hidden = false;
@@ -969,10 +987,21 @@ async function oeffnePush() {
 
   pushAn = true;
   $('pushStatus').textContent = 'Mitteilungen sind erlaubt';
-  $('pushHinweis').textContent = 'Diese Anmeldung muss einmal beim Server hinterlegt werden. Danach ist nichts mehr zu tun.';
+
+  // Die App hinterlegt die Anmeldung selbst - verschlüsselt, so wie alles
+  // andere auch. Kein Abtippen mehr, und bei einer Neuinstallation trägt
+  // sich das Gerät von allein wieder ein.
+  const hinterlegt = await pushAnmeldungHinterlegen(anmeldung.toJSON(), schluessel);
+  $('pushHinweis').textContent = hinterlegt
+    ? 'Dieses Gerät ist eingetragen. Ab dem nächsten Abruf kommen die Mitteilungen an.'
+    : 'Eintragen hat gerade nicht geklappt – die App versucht es bei jedem Öffnen erneut. ' +
+      'Falls es dabei bleibt, schick die Anmeldung unten einmal von Hand.';
+  // Der Kopierweg bleibt als Rückfallebene, wird aber nur noch gebraucht,
+  // wenn sich das Gerät nicht selbst eintragen konnte.
   $('pushDaten').value = JSON.stringify(anmeldung.toJSON());
-  $('pushDaten').hidden = false;
-  $('pushKopieren').hidden = false;
+  $('pushDaten').hidden = hinterlegt;
+  $('pushKopieren').hidden = hinterlegt;
+  zeichnen();
 }
 
 async function pushStandPruefen() {
@@ -986,6 +1015,11 @@ async function pushStandPruefen() {
     ]);
     const anmeldung = await reg?.pushManager?.getSubscription().catch(() => null);
     pushAn = !!anmeldung;
+    // Bei jedem Start nachtragen: Apple vergibt nach einer Neuinstallation
+    // eine neue Adresse, und ohne das kämen still keine Mitteilungen mehr an.
+    if (anmeldung && schluessel) {
+      pushAnmeldungHinterlegen(anmeldung.toJSON(), schluessel).catch(() => {});
+    }
   } catch {
     pushAn = false;
   }
@@ -1056,8 +1090,9 @@ function zeichnen() {
     warnung.className = 'daten-warnung';
     warnung.innerHTML =
       '<strong>Deine Einträge sind gerade nicht verfügbar.</strong>' +
-      '<span>Noten, Aufgaben und Fehlzeiten erscheinen wieder, sobald das Laden klappt. ' +
-      'Eintragen ist so lange gesperrt, damit nichts verloren geht. Schließe die App einmal komplett und öffne sie neu.</span>';
+      '<span>Auf diesem Gerät lassen sich Noten, Aufgaben und Fehlzeiten im Moment nicht öffnen, ' +
+      'und die Sicherung ist nicht erreichbar. Eintragen ist so lange gesperrt, damit nichts ' +
+      'überschrieben wird. Prüfe die Internetverbindung und tippe oben auf ⟳.</span>';
     inhalt.prepend(warnung);
   }
 
@@ -1108,6 +1143,11 @@ async function starten({ frisch = false, leise = false } = {}) {
     }
     // Vergangene Schultage in die Stundenstatistik aufnehmen (Basis der Fehlquote).
     if (aktualisiereStundenZaehler() > 0) await speichern();
+    // Mit den anderen Geräten abgleichen - im Hintergrund, damit die Anzeige
+    // nicht wartet. Ergebnis kommt über setzeFremdaenderung zurück.
+    if (zustand.datenGeladen && schluessel) {
+      abgleichen(zustand.meineDaten, schluessel).catch(() => {});
+    }
     zustand.gewaehlt ??= startTag();
     if (!tagFinden(zustand.gewaehlt)) zustand.gewaehlt = startTag();
     zeichnen();
