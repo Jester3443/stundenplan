@@ -4,6 +4,7 @@
 // Es gibt nur EINEN Untis-Zugang (Jaspers). Personen ohne eigenen Zugang
 // werden aus dem Jahrgangsplan gefiltert - dafuer reicht die Kursliste.
 import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import 'dotenv/config';
 import { UntisRest, isoDatum, montagVon } from './untis-rest.mjs';
 import {
@@ -16,9 +17,37 @@ import {
   terminBetrifftMich,
 } from '../public/shared/konfiguration.mjs';
 import { verschluesseln, entschluesseln } from './krypto-node.mjs';
+import {
+  findeAenderungen,
+  wochenZusammenfuehren,
+  termintexteUebernehmen,
+  aufgabenUebernehmen,
+  stundenZahl,
+} from './vergleich.mjs';
 
-const WOCHEN_VORAUS = Number(process.argv[2] ?? 4);
-const WOCHEN_RUECKBLICK = 2;
+/**
+ * Der Zeitraum, den der veroeffentlichte Plan immer abdeckt - unabhaengig
+ * davon, wie viel ein einzelner Lauf frisch abgerufen hat.
+ */
+const VOLL_VORAUS = 4;
+const VOLL_RUECKBLICK = 2;
+
+const ARGUMENTE = process.argv.slice(2);
+
+/**
+ * Schnell-Lauf (alle paar Minuten): holt nur die laufende und die naechste
+ * Woche. Genau dort passieren Vertretungen und Ausfaelle, und ein solcher
+ * Lauf kostet den Schulserver nur ein Drittel der Anfragen. Alles Weitere
+ * kommt aus dem zuletzt veroeffentlichten Stand - der Plan verliert also
+ * trotzdem keine einzige Woche.
+ */
+const SCHNELL = ARGUMENTE.includes('--schnell') || (process.env.MODUS ?? '').trim() === 'schnell';
+const ZAHL_ARGUMENT = ARGUMENTE.find((a) => /^\d+$/.test(a));
+
+// 2 = laufende Woche + naechste Woche (die Zaehlung schliesst die
+// laufende Woche mit ein, genau wie im vollstaendigen Lauf).
+const WOCHEN_VORAUS = SCHNELL ? 2 : Number(ZAHL_ARGUMENT ?? VOLL_VORAUS);
+const WOCHEN_RUECKBLICK = SCHNELL ? 0 : VOLL_RUECKBLICK;
 const TAGE = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
 
 /** Zugangscode je Person: APP_CODE_JASPER, APP_CODE_FREUNDIN ... */
@@ -63,82 +92,33 @@ function filtere(stunden) {
   return behalten.sort((a, b) => a.von.localeCompare(b.von));
 }
 
-/**
- * Vergleichsschluessel einer Stunde. Bewusst NUR Datum + Startzeit + Kurs:
- * Der Anzeigename eines Termins kann sich aendern, ohne dass sich inhaltlich
- * etwas geaendert hat - dann darf keine falsche Meldung entstehen.
- */
-const schluessel = (datum, s) => `${datum}|${s.von}|${s.kurs ?? 'TERMIN'}`;
-
-const zustand = (s) =>
-  `${s.status}|${s.lehrer}|${s.raum}|${s.text}|${(s.aufgaben ?? []).map((a) => a.text).join('~')}`;
-
-const aufgabenText = (s) => (s.aufgaben ?? []).map((a) => a.text).join('~');
-
-function findeAenderungen(alt, neu) {
-  const alteStunden = new Map();
-  for (const woche of alt?.wochen ?? []) {
-    for (const tag of woche.tage) {
-      for (const s of tag.stunden) alteStunden.set(schluessel(tag.datum, s), s);
-    }
-  }
-  if (!alteStunden.size) return []; // erster Lauf: nichts zu melden
-
-  const aenderungen = [];
-  const gesehen = new Set();
-
-  for (const woche of neu.wochen) {
-    for (const tag of woche.tage) {
-      for (const s of tag.stunden) {
-        const key = schluessel(tag.datum, s);
-        gesehen.add(key);
-        const vorher = alteStunden.get(key);
-        if (!vorher) {
-          aenderungen.push({ art: 'neu', datum: tag.datum, block: s.block, kurs: s.kurs ?? s.fachName, text: `${s.fachName} neu im Plan` });
-          continue;
-        }
-        if (zustand(vorher) === zustand(s)) continue;
-
-        if (aufgabenText(vorher) !== aufgabenText(s) && (s.aufgaben ?? []).length) {
-          aenderungen.push({ art: 'hausaufgabe', datum: tag.datum, block: s.block, kurs: s.kurs ?? s.fachName, text: `${s.fachName}: neue Hausaufgabe` });
-        } else if (vorher.status !== 'CANCELLED' && s.status === 'CANCELLED') {
-          aenderungen.push({ art: 'entfall', datum: tag.datum, block: s.block, kurs: s.kurs ?? s.fachName, text: `${s.fachName} faellt aus` });
-        } else if (vorher.status === 'CANCELLED' && s.status !== 'CANCELLED') {
-          aenderungen.push({ art: 'zurueck', datum: tag.datum, block: s.block, kurs: s.kurs ?? s.fachName, text: `${s.fachName} findet doch statt` });
-        } else if (vorher.raum !== s.raum) {
-          aenderungen.push({ art: 'raum', datum: tag.datum, block: s.block, kurs: s.kurs ?? s.fachName, text: `${s.fachName}: Raum ${vorher.raum || '?'} → ${s.raum || '?'}` });
-        } else if (vorher.lehrer !== s.lehrer) {
-          aenderungen.push({ art: 'vertretung', datum: tag.datum, block: s.block, kurs: s.kurs ?? s.fachName, text: `${s.fachName}: ${vorher.lehrer || '?'} → ${s.lehrer || 'keine Vertretung'}` });
-        } else {
-          aenderungen.push({ art: 'hinweis', datum: tag.datum, block: s.block, kurs: s.kurs ?? s.fachName, text: `${s.fachName}: ${s.text || 'Änderung im Plan'}` });
-        }
-      }
-    }
-  }
-
-  for (const [key, s] of alteStunden) {
-    if (gesehen.has(key)) continue;
-    const [datum] = key.split('|');
-    if (datum < isoDatum(new Date())) continue;
-    if (key.endsWith('|TERMIN')) continue;
-    aenderungen.push({ art: 'gestrichen', datum, block: s.block, kurs: s.kurs ?? s.fachName, text: `${s.fachName} steht nicht mehr im Plan` });
-  }
-
-  return aenderungen;
-}
-
 // ---------------------------------------------------------------- Ablauf
+
+/** Der Montag, mit dem der veroeffentlichte Plan beginnt bzw. endet. */
+const fensterStart = montagVon(new Date());
+fensterStart.setDate(fensterStart.getDate() - VOLL_RUECKBLICK * 7);
+const fensterEnde = new Date(fensterStart);
+fensterEnde.setDate(fensterEnde.getDate() + (VOLL_VORAUS + VOLL_RUECKBLICK - 1) * 7);
+const FENSTER_VON = isoDatum(fensterStart);
+const FENSTER_BIS = isoDatum(fensterEnde);
 
 const untis = new UntisRest();
 await untis.anmelden();
 
-const app = await untis.appDaten().catch(() => null);
+// Schuljahr und Ferien aendern sich nicht im Minutentakt. Der Schnell-Lauf
+// laesst sie weg (drei Anfragen weniger) und uebernimmt sie weiter unten aus
+// dem zuletzt veroeffentlichten Stand.
+const app = SCHNELL ? null : await untis.appDaten().catch(() => null);
 const schuljahr = app?.currentSchoolYear
   ? { name: app.currentSchoolYear.name, von: app.currentSchoolYear.dateRange.start, bis: app.currentSchoolYear.dateRange.end }
   : null;
 
-const ferien = await untis.ferien();
-console.log(`${ferien.length} Ferienzeitraeume, Schuljahr ${schuljahr?.name ?? '?'}\n`);
+const ferien = SCHNELL ? [] : await untis.ferien();
+console.log(
+  SCHNELL
+    ? 'Schnell-Lauf: laufende und naechste Woche\n'
+    : `${ferien.length} Ferienzeitraeume, Schuljahr ${schuljahr?.name ?? '?'}\n`
+);
 
 // Zwei Wochen rueckwaerts mitnehmen, damit die Stundenstatistik keine Luecken
 // bekommt, wenn die App ein paar Tage nicht geoeffnet wird.
@@ -169,16 +149,23 @@ for (let i = 0; i < WOCHEN_VORAUS + WOCHEN_RUECKBLICK; i++) {
 }
 
 // Lehrer-Hausaufgaben gibt es nur fuer den eigenen Zugang.
+// Wichtig ist der Unterschied zwischen "es gibt keine" und "Abruf misslungen":
+// Im zweiten Fall werden die Aufgaben unten aus dem letzten Stand uebernommen,
+// sonst gaebe es bei jeder Stoerung eine Runde Falschmeldungen.
 let hausaufgaben = [];
+let hausaufgabenGeholt = true;
 try {
   hausaufgaben = await untis.hausaufgaben(isoDatum(start), isoDatum(ende));
-} catch {
-  /* nicht verfuegbar */
+} catch (fehler) {
+  hausaufgabenGeholt = false;
+  console.warn(`Hausaufgaben nicht abrufbar (${String(fehler.message).slice(0, 60)}) - alter Stand bleibt.`);
 }
 
-// Termintexte je Woche (die neue Schnittstelle laesst sie weg).
+// Termintexte je Woche (die neue Schnittstelle laesst sie weg). Das kostet
+// zwei zusaetzliche Anfragen je Woche - der Schnell-Lauf spart sie und
+// uebernimmt die Texte stattdessen aus dem letzten Stand.
 const termintexte = new Map();
-for (const { montag } of rohPerson) {
+for (const { montag } of SCHNELL ? [] : rohPerson) {
   for (const [key, text] of await untis.terminTexte(montag)) termintexte.set(key, text);
 }
 
@@ -228,38 +215,109 @@ for (const [kennung, person] of Object.entries(BENUTZER)) {
     wochen.push({ montag, typ: wochentyp(montag), veroeffentlicht: anzahl > 0, fehler, tage: gefiltert });
   }
 
-  const gesamt = wochen.reduce((n, w) => n + w.tage.reduce((m, t) => m + t.stunden.length, 0), 0);
-  console.log(`  ${KURSE.length} Kurse, ${gesamt} Stunden in ${wochen.length} Wochen`);
-
   const basis = `data/letzter-plan-${kennung}.json`;
   const ziel = `public/data/plan-${kennung}.enc.json`;
 
   // Vergleichsbasis: bevorzugt der zuletzt veroeffentlichte Stand.
   let alt = null;
   let bisherigesSalz = null;
+
+  /**
+   * Konnten wir den letzten Stand ZUVERLAESSIG feststellen?
+   * Der Unterschied ist entscheidend: "es gab noch nie einen Stand" ist
+   * harmlos, "wir konnten nicht nachsehen" ist gefaehrlich. Im zweiten Fall
+   * wuerde ein Schnell-Lauf einen Zwei-Wochen-Plan veroeffentlichen und -
+   * schlimmer - ein frisches Salz erzeugen, das alle Geraete aussperrt.
+   */
+  let basisGeklaert = false;
+
+  // Zuerst aus dem ausgecheckten data-Zweig - der ist immer taggenau.
+  // Die oeffentliche Adresse dahinter kann einige Minuten alt sein, was bei
+  // haeufigen Laeufen dieselbe Meldung ein zweites Mal ausloesen wuerde.
+  const basisDir = (process.env.BASIS_DIR ?? '').trim();
+  if (basisDir) {
+    try {
+      const paket = JSON.parse(await readFile(`${basisDir}/plan-${kennung}.enc.json`, 'utf8'));
+      bisherigesSalz = paket.salz ?? null;
+      alt = entschluesseln(paket, code);
+      basisGeklaert = true;
+    } catch (fehler) {
+      // Der Zweig liegt vor, nur diese Person fehlt darin: dann hat es fuer
+      // sie wirklich noch nichts gegeben - das ist geklaert.
+      if (fehler.code === 'ENOENT' && existsSync(basisDir)) basisGeklaert = true;
+    }
+  }
+
   const basisUrl = (process.env.BASIS_URL ?? '').trim();
-  if (basisUrl) {
+  if (!alt && basisUrl) {
     try {
       const antwort = await fetch(`${basisUrl.replace(/\/$/, '')}/data/plan-${kennung}.enc.json`, { cache: 'no-store' });
       if (antwort.ok) {
         const paket = await antwort.json();
         bisherigesSalz = paket.salz ?? null;
         alt = entschluesseln(paket, code);
+        basisGeklaert = true;
+      } else if (antwort.status === 404) {
+        basisGeklaert = true; // gab es nachweislich noch nie
       }
     } catch {
-      /* beim ersten Lauf normal */
+      /* nicht erreichbar - damit ist nichts geklaert */
     }
   }
   if (!alt) {
     try {
       alt = JSON.parse(await readFile(basis, 'utf8'));
-    } catch {
-      /* erster Lauf */
+      basisGeklaert = true;
+    } catch (fehler) {
+      // Ohne jede Fernquelle (lokaler Lauf) zaehlt auch "Datei gibt es nicht".
+      if (fehler.code === 'ENOENT' && !basisDir && !basisUrl) basisGeklaert = true;
     }
   }
   bisherigesSalz ??= alt?._salz ?? null;
 
-  const neu = { aktualisiert: new Date().toISOString(), benutzer: kennung, schuljahr, ferien, kurse: KURSE, wochen };
+  // Notbremse 1: Ohne geklaerten Vorstand nichts veroeffentlichen. Sonst
+  // entstuende ein neues Salz - und der auf den Geraeten gespeicherte
+  // Schluessel passte nicht mehr zu den Daten UND nicht mehr zur Sicherung.
+  if (!basisGeklaert) {
+    console.warn('  Letzter Stand nicht feststellbar - uebersprungen, damit nichts zerstoert wird.\n');
+    fehlgeschlagen++;
+    continue;
+  }
+
+  // Notbremse 2: Ein Schnell-Lauf holt nur zwei Wochen. Ohne Vorstand zum
+  // Zusammenfuehren wuerde er den Plan auf diese zwei Wochen eindampfen.
+  if (SCHNELL && !alt?.wochen?.length) {
+    console.warn('  Schnell-Lauf ohne Vergleichsstand - uebersprungen, der volle Lauf holt das nach.\n');
+    fehlgeschlagen++;
+    continue;
+  }
+
+  // Fehlgeschlagene Zusatzabrufe duerfen den veroeffentlichten Stand nicht
+  // aermer machen als er war.
+  const ferienListe = ferien.length ? ferien : (alt?.ferien ?? []);
+  if (SCHNELL) termintexteUebernehmen(alt?.wochen, wochen);
+  if (!hausaufgabenGeholt) aufgabenUebernehmen(alt?.wochen, wochen);
+  const alleWochen = wochenZusammenfuehren(alt?.wochen, wochen, {
+    ferien: ferienListe,
+    von: FENSTER_VON,
+    bis: FENSTER_BIS,
+  });
+
+  const frisch = wochen.reduce((n, w) => n + stundenZahl(w), 0);
+  const gesamt = alleWochen.reduce((n, w) => n + stundenZahl(w), 0);
+  console.log(
+    `  ${KURSE.length} Kurse, ${gesamt} Stunden in ${alleWochen.length} Wochen` +
+      (SCHNELL ? ` (davon ${frisch} aus ${wochen.length} frisch geholten Wochen)` : '')
+  );
+
+  const neu = {
+    aktualisiert: new Date().toISOString(),
+    benutzer: kennung,
+    schuljahr: schuljahr ?? alt?.schuljahr ?? null,
+    ferien: ferienListe,
+    kurse: KURSE,
+    wochen: alleWochen,
+  };
   neu.aenderungen = findeAenderungen(alt, neu);
   neu.verlauf = [
     ...(alt?.verlauf ?? []).slice(-50),
@@ -289,7 +347,7 @@ await rm('public/data/plan.json', { force: true }); // Klartext darf nie ins Net
 
 const erledigt = Object.keys(BENUTZER).length - fehlgeschlagen;
 if (fehlgeschlagen) {
-  console.warn(`Hinweis: ${fehlgeschlagen} Person(en) ohne Zugangscode uebersprungen.`);
+  console.warn(`Hinweis: ${fehlgeschlagen} Person(en) uebersprungen (Grund steht oben).`);
 }
 // Nur abbrechen, wenn GAR NICHTS erzeugt wurde - ein fehlender zweiter
 // Code darf den Lauf der ersten Person nicht mitreissen.

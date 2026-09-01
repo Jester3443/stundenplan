@@ -6,11 +6,12 @@ import {
   DATEN_URL,
   BENUTZER,
   setzeBenutzer,
-} from './shared/konfiguration.mjs?v=20';
-import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=20';
+} from './shared/konfiguration.mjs?v=21';
+import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=21';
 import {
   schluesselSichern,
   schluesselLaden,
+  schluesselSalzLaden,
   schluesselVergessen,
   ladeMeineDaten,
   speichereMeineDaten,
@@ -20,8 +21,8 @@ import {
   verschmelze,
   pushAnmeldungHinterlegen,
   LEER,
-} from './daten.mjs?v=20';
-import { symbolFuer } from './symbole.mjs?v=20';
+} from './daten.mjs?v=21';
+import { symbolFuer } from './symbole.mjs?v=21';
 import {
   initBereiche,
   zeichneAufgaben,
@@ -34,10 +35,10 @@ import {
   aufgabenVorschau,
   lernenAm,
   aktualisiereStundenZaehler,
-} from './bereiche.mjs?v=20';
+} from './bereiche.mjs?v=21';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 20;
+const APP_VERSION = 21;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -79,29 +80,48 @@ let schluessel = null;
 
 // ------------------------------------------------------------- Daten holen
 
+/**
+ * Sieht die Antwort wirklich wie ein verschlüsseltes Datenpaket aus?
+ * Wichtig, weil eine unvollständige Antwort sonst als „falscher Code"
+ * gedeutet würde – und die App daraufhin den gespeicherten Schlüssel
+ * verwerfen und nach dem Code fragen würde.
+ */
+const istPaket = (p) => !!(p && typeof p === 'object' && p.iv && p.daten && p.salz);
+
+/** Holt eine Adresse und gibt das Paket nur zurück, wenn es vollständig ist. */
+async function holePaket(url, einstellung) {
+  const antwort = await fetch(url, einstellung).catch(() => null);
+  if (!antwort?.ok) return null;
+  const paket = await antwort.json().catch(() => null);
+  return istPaket(paket) ? paket : null;
+}
+
 async function holeRoh(frisch) {
   const anhang = frisch ? `?t=${Date.now()}` : '';
   const einstellung = { cache: frisch ? 'reload' : 'default' };
 
   // Bevorzugt aus der Cloud (immer aktuell, unabhängig vom Deploy) ...
   if (DATEN_URL) {
-    const cloud = await fetch(`${DATEN_URL.replace('{benutzer}', person)}${anhang}`, einstellung).catch(() => null);
-    if (cloud?.ok) return { verschluesselt: true, paket: await cloud.json() };
+    const cloud = await holePaket(`${DATEN_URL.replace('{benutzer}', person)}${anhang}`, einstellung);
+    if (cloud) return { verschluesselt: true, paket: cloud };
 
     // Rückfall auf den alten Dateinamen: GitHubs Auslieferung braucht für neu
     // angelegte Dateien einige Minuten. Ohne das bliebe die App so lange leer.
     if (person === 'jasper') {
-      const alt = await fetch(`${DATEN_URL.replace('plan-{benutzer}', 'plan')}${anhang}`, einstellung).catch(() => null);
-      if (alt?.ok) return { verschluesselt: true, paket: await alt.json() };
+      const alt = await holePaket(`${DATEN_URL.replace('plan-{benutzer}', 'plan')}${anhang}`, einstellung);
+      if (alt) return { verschluesselt: true, paket: alt };
     }
   }
 
   // ... sonst von der eigenen Adresse.
-  const verschluesselt = await fetch(`data/plan-${person}.enc.json${anhang}`, einstellung).catch(() => null);
-  if (verschluesselt?.ok) return { verschluesselt: true, paket: await verschluesselt.json() };
+  const verschluesselt = await holePaket(`data/plan-${person}.enc.json${anhang}`, einstellung);
+  if (verschluesselt) return { verschluesselt: true, paket: verschluesselt };
 
   const klar = await fetch(`data/plan.json${anhang}`, einstellung).catch(() => null);
-  if (klar?.ok) return { verschluesselt: false, plan: await klar.json() };
+  if (klar?.ok) {
+    const plan = await klar.json().catch(() => null);
+    if (plan?.wochen) return { verschluesselt: false, plan };
+  }
 
   throw new Error('Plandaten sind nicht erreichbar.');
 }
@@ -180,6 +200,20 @@ async function ladePlan({ frisch = false, leise = false } = {}) {
   let fehler = false;
   let vorigePerson = person;
 
+  // Wurde dieses Paket mit einem anderen Salz verschlüsselt als der
+  // gespeicherte Schlüssel? Dann kann es gar nicht passen – und es wäre
+  // falsch, deshalb den Schlüssel wegzuwerfen und nach dem Code zu fragen.
+  // Das passiert etwa, wenn die Notkopie auf dem Webspace älter ist als die
+  // veröffentlichten Daten.
+  if (schluessel) {
+    const gemerktesSalz = await schluesselSalzLaden();
+    if (gemerktesSalz && paket.salz !== gemerktesSalz) {
+      console.warn('Plandaten passen nicht zum gespeicherten Zugang - alter Stand bleibt.');
+      if (zustand.plan) return null;
+      throw new Error('Die Plandaten passen gerade nicht zu deinem Zugang. Versuch es später noch einmal.');
+    }
+  }
+
   for (;;) {
     if (!schluessel) {
       if (leise && zustand.plan) return null; // alten Stand behalten, nicht nerven
@@ -197,7 +231,7 @@ async function ladePlan({ frisch = false, leise = false } = {}) {
     }
     try {
       const plan = await entschluesseln(paket, schluessel);
-      await schluesselSichern(schluessel);
+      await schluesselSichern(schluessel, paket.salz);
       localStorage.setItem('benutzer', person);
       $('sperre').hidden = true;
       return plan;
@@ -570,7 +604,7 @@ function stundenKarte(s, jetztMin, istHeute) {
 function zeichneTag(ziel) {
   ziel.textContent = '';
 
-  const offen = (zustand.plan?.aenderungen ?? []).filter((a) => !zustand.gelesen.has(kennung(a)));
+  const offen = offeneAenderungen();
   if (offen.length) ziel.append(banner(offen));
 
   const tag = tagFinden(zustand.gewaehlt);
@@ -651,6 +685,33 @@ function leerHinweis(titel, text) {
 
 const kennung = (a) => `${a.datum}|${a.kurs}|${a.art}|${a.text}`;
 
+/**
+ * Was ist passiert, seit du zuletzt hingeschaut hast?
+ *
+ * Quelle ist bewusst der Verlauf und nicht nur der letzte Abruf: Der Server
+ * sieht jetzt alle fünf Minuten nach, und „aenderungen" enthält immer nur den
+ * Unterschied EINES Abrufs. Das Banner wäre sonst nach wenigen Minuten von
+ * selbst verschwunden – ausgerechnet dann, wenn man es lesen will.
+ */
+function offeneAenderungen() {
+  const grenze = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const verlauf = zustand.plan?.verlauf ?? [];
+  const quelle = verlauf.length ? verlauf : (zustand.plan?.aenderungen ?? []);
+
+  const gesehen = new Set();
+  const offen = [];
+  // Von hinten: der Verlauf ist chronologisch, das Neueste soll oben stehen.
+  for (let i = quelle.length - 1; i >= 0; i--) {
+    const a = quelle[i];
+    if (a.erkannt && a.erkannt < grenze) continue; // älter als ein Tag
+    const k = kennung(a);
+    if (gesehen.has(k) || zustand.gelesen.has(k)) continue;
+    gesehen.add(k);
+    offen.push(a);
+  }
+  return offen;
+}
+
 function banner(aenderungen) {
   const el = document.createElement('button');
   el.type = 'button';
@@ -696,7 +757,7 @@ function zeichneWoche(ziel) {
   ziel.classList.add('woche-modus');
   $('tagesFortschritt').hidden = true;
 
-  const offen = (zustand.plan?.aenderungen ?? []).filter((a) => !zustand.gelesen.has(kennung(a)));
+  const offen = offeneAenderungen();
   if (offen.length) ziel.append(banner(offen));
 
   const woche = wocheFinden(zustand.gewaehlt);
@@ -1122,12 +1183,22 @@ function zeitstempel(wert) {
   return heute ? `Stand ${uhr} Uhr` : `Stand ${d.getDate()}.${d.getMonth() + 1}. ${uhr} Uhr`;
 }
 
+/** Wann wurde zuletzt erfolgreich beim Server nachgesehen? */
+let zuletztGeholt = 0;
+
+/** Laeuft gerade ein Ladevorgang? Zwei gleichzeitige waeren Verschwendung. */
+let ladenLaeuft = false;
+
 async function starten({ frisch = false, leise = false } = {}) {
+  if (ladenLaeuft) return;
+  ladenLaeuft = true;
   const knopf = $('aktualisieren');
-  knopf.classList.add('dreht');
+  // Bei stillen Hintergrund-Abrufen soll sich das Symbol nicht von selbst drehen.
+  if (!leise) knopf.classList.add('dreht');
   try {
     const plan = await ladePlan({ frisch, leise });
     if (plan) zustand.plan = plan;
+    zuletztGeholt = Date.now();
     if (!zustand.datenGeladen) {
       // Bis zu drei Versuche - ein kalt startendes iPhone braucht manchmal
       // einen Moment, bis die Datenbank antwortet.
@@ -1162,6 +1233,7 @@ async function starten({ frisch = false, leise = false } = {}) {
     }
   } finally {
     knopf.classList.remove('dreht');
+    ladenLaeuft = false;
   }
 }
 
@@ -1290,6 +1362,15 @@ setInterval(() => {
   }
 }, 30_000);
 
+// Während die App offen daliegt, alle paar Minuten selbst nachsehen.
+// Der Server prüft alle fünf Minuten; ohne das hier stünde auf dem
+// Bildschirm ein Ausfall erst dann, wenn man die App neu öffnet.
+setInterval(() => {
+  if (document.visibilityState !== 'visible' || fensterOffen()) return;
+  if (Date.now() - zuletztGeholt < 3.5 * 60_000) return; // nicht doppelt holen
+  starten({ frisch: true, leise: true });
+}, 60_000);
+
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
@@ -1298,4 +1379,6 @@ if ('serviceWorker' in navigator) {
 navigator.storage?.persist?.().catch(() => {});
 
 setzeTab('plan');
-starten();
+// Beim Start bewusst frisch holen: Wenn man nach einer Mitteilung die App
+// öffnet, will man den neuen Stand sehen und nicht den aus dem Zwischenspeicher.
+starten({ frisch: true });

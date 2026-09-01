@@ -9,7 +9,7 @@
 // Zusaetzlich haelt diese Datei den Abgleich zwischen mehreren Geraeten:
 // jedes Geraet arbeitet auf seinem eigenen Stand und schiebt ihn
 // verschluesselt in die Cloud; beim Laden werden beide Staende verschmolzen.
-import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=20';
+import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=21';
 
 const DB_NAME = 'stundenplan';
 const LADEN = 'werte';
@@ -237,10 +237,23 @@ export async function pushAnmeldungHinterlegen(anmeldung, schluessel) {
 const b64ein = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
 const b64aus = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 
-export async function schluesselSichern(schluessel) {
+export async function schluesselSichern(schluessel, salz = null) {
   const roh = await crypto.subtle.exportKey('raw', schluessel);
   await lege(schluesselName(), b64ein(roh));
+  // Das Salz mitschreiben, aus dem dieser Schluessel abgeleitet wurde.
+  // Damit erkennt die App ein Paket, das gar nicht zu ihrem Schluessel
+  // passen KANN - und fragt dann nicht faelschlich nach dem Zugangscode.
+  if (salz) await lege(`${schluesselName()}:salz`, salz);
   localStorage.removeItem('schluessel'); // alter Ablageort
+}
+
+/** Aus welchem Salz wurde der gespeicherte Schluessel abgeleitet? */
+export async function schluesselSalzLaden() {
+  try {
+    return await hole(`${schluesselName()}:salz`);
+  } catch {
+    return null;
+  }
 }
 
 export async function schluesselLaden() {

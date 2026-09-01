@@ -71,6 +71,20 @@ for (const kennung of Object.keys(BENUTZER)) {
   const aenderungen = plan.aenderungen ?? [];
   if (!aenderungen.length) continue;
 
+  // Notbremse: So viele echte Aenderungen auf einmal gibt es nicht. Wenn doch,
+  // ist etwas schiefgelaufen - dann lieber eine kurze Sammelmeldung als eine
+  // Mitteilung mit sechzig Zeilen.
+  if (aenderungen.length > 12) {
+    console.warn(`${kennung}: ${aenderungen.length} Aenderungen - Sammelmeldung statt Liste.`);
+    gesamt += await sendeAn(abo, {
+      titel: 'Der Plan hat sich stark geändert',
+      koerper: 'Schau am besten kurz in die App.',
+      marke: 'stundenplan',
+      datum: null,
+    });
+    continue;
+  }
+
   const sortiert = [...aenderungen].sort((a, b) => (RANG[a.art] ?? 9) - (RANG[b.art] ?? 9));
   const entfaelle = sortiert.filter((a) => a.art === 'entfall');
 

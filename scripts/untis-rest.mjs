@@ -57,18 +57,46 @@ export class UntisRest {
     return this.session;
   }
 
-  async rest(pfad) {
-    const antwort = await fetch(`https://${this.host}${pfad}`, {
-      headers: {
-        Cookie: this.cookies,
-        Authorization: `Bearer ${this.token}`,
-        Accept: 'application/json',
-      },
-    });
-    if (!antwort.ok) {
+  /**
+   * Ein Abruf an den Schulserver - mit Zeitgrenze und einer zweiten Chance.
+   *
+   * Der Abgleich laeuft jetzt alle fuenf Minuten. Ohne Zeitgrenze koennte ein
+   * haengender Abruf den ganzen Lauf blockieren, und eine kurzzeitige
+   * Ueberlastung (429/503) wuerde als "Woche ohne Unterricht" durchgereicht.
+   * Wir warten stattdessen kurz und fragen noch einmal - hoeflicher gegenueber
+   * dem Server und verlaesslicher fuer uns.
+   */
+  async rest(pfad, versuche = 2) {
+    for (let versuch = 1; ; versuch++) {
+      let antwort;
+      try {
+        antwort = await fetch(`https://${this.host}${pfad}`, {
+          signal: AbortSignal.timeout(20_000),
+          headers: {
+            Cookie: this.cookies,
+            Authorization: `Bearer ${this.token}`,
+            Accept: 'application/json',
+          },
+        });
+      } catch (fehler) {
+        if (versuch >= versuche) throw fehler;
+        await new Promise((w) => setTimeout(w, 2000));
+        continue;
+      }
+
+      if (antwort.ok) return antwort.json();
+
+      // Zu viele Anfragen oder Serverstoerung: einmal kurz warten.
+      if ((antwort.status === 429 || antwort.status >= 500) && versuch < versuche) {
+        const kopf = Number(antwort.headers.get('retry-after'));
+        const warten = Number.isFinite(kopf) && kopf > 0 ? Math.min(kopf, 20) * 1000 : 3000;
+        console.warn(`  HTTP ${antwort.status} bei ${pfad} - noch ein Versuch in ${warten / 1000}s.`);
+        await new Promise((w) => setTimeout(w, warten));
+        continue;
+      }
+
       throw new Error(`HTTP ${antwort.status} bei ${pfad}: ${(await antwort.text()).slice(0, 200)}`);
     }
-    return antwort.json();
   }
 
   /** Stammdaten inkl. Schuljahr und Stundenraster. */
@@ -114,14 +142,16 @@ export class UntisRest {
    * Hausaufgaben, die Lehrer in WebUntis eingetragen haben.
    * Rueckgabe: Liste mit { faellig, fach, text, anmerkung, erledigt }.
    */
+  /**
+   * Wirft bei einem Fehlschlag bewusst weiter. "Keine Hausaufgaben" und
+   * "Abruf misslungen" duerfen nicht dasselbe bedeuten: Sonst verloeren beim
+   * kleinsten Serverfehler alle Stunden ihre Aufgaben, was als Aenderung
+   * gemeldet wuerde - und beim naechsten Lauf noch einmal als "neue
+   * Hausaufgabe" fuer eine Aufgabe, die es laengst gab.
+   */
   async hausaufgaben(von, bis) {
     const zahl = (d) => d.replace(/-/g, '');
-    let roh;
-    try {
-      roh = await this.rest(`/WebUntis/api/homeworks/lessons?startDate=${zahl(von)}&endDate=${zahl(bis)}`);
-    } catch {
-      return [];
-    }
+    const roh = await this.rest(`/WebUntis/api/homeworks/lessons?startDate=${zahl(von)}&endDate=${zahl(bis)}`);
     const daten = roh?.data ?? roh ?? {};
     const stunden = new Map((daten.lessons ?? []).map((l) => [l.id, l.subject]));
     const lehrer = new Map((daten.teachers ?? []).map((t) => [t.id, t.name ?? t.longName ?? '']));

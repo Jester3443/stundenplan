@@ -2,17 +2,33 @@ name: Stundenplan abrufen
 
 on:
   schedule:
-    # Alle 15 Minuten an Schultagen. GitHub rechnet in UTC:
+    # Schnell-Lauf alle 5 Minuten an Schultagen. GitHub rechnet in UTC:
     # 4-16 UTC deckt 6-18 Uhr deutscher Zeit in Sommer UND Winter ab.
-    - cron: '*/15 4-16 * * 1-5'
+    # Holt nur die laufende und die naechste Woche - dort passieren
+    # Vertretungen. Dadurch belastet der haeufigere Takt den Schulserver
+    # weniger als der bisherige 15-Minuten-Takt.
+    - cron: '*/5 4-16 * * 1-5'
+    # Viermal taeglich der vollstaendige Plan (6 Wochen). Was weiter als zwei
+    # Wochen entfernt liegt, aendert sich nicht im Minutentakt. Minute 3
+    # kollidiert bewusst nicht mit dem Fuenf-Minuten-Raster.
+    - cron: '3 4,8,12,16 * * 1-5'
     # Abendvorschau: 19 UTC = 21:00 Sommerzeit / 20:00 Winterzeit,
     # sonntags bis donnerstags (fuer die Schultage Montag bis Freitag).
     - cron: '0 19 * * 0-4'
-    # Morgenueberblick: 4:30 UTC = 6:30 Sommerzeit / 5:30 Winterzeit.
-    - cron: '30 4 * * 1-5'
-    # Hausaufgaben-Erinnerung am Vortag: 13:40 UTC = 15:40 Sommerzeit.
-    - cron: '40 13 * * 0-4'
+    # Morgenueberblick: 4:32 UTC = 6:32 Sommerzeit / 5:32 Winterzeit.
+    # Minute 32 statt 30, weil 30 auf dem Fuenf-Minuten-Raster liegt und
+    # GitHub sonst zwei Laeufe gleichzeitig startet.
+    - cron: '32 4 * * 1-5'
+    # Hausaufgaben-Erinnerung am Vortag: 13:41 UTC = 15:41 Sommerzeit.
+    # Minute 41 statt 40 - siehe Begruendung beim Morgenueberblick.
+    - cron: '41 13 * * 0-4'
   workflow_dispatch: # erlaubt den Start von Hand
+    inputs:
+      modus:
+        description: 'voll = sechs Wochen, schnell = nur laufende und naechste Woche'
+        type: choice
+        options: [voll, schnell]
+        default: voll
 
 # Zwei gleichzeitige Laeufe wuerden sich gegenseitig ueberschreiben.
 concurrency:
@@ -25,7 +41,7 @@ permissions:
 jobs:
   abrufen:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 5
 
     steps:
       - uses: actions/checkout@v4
@@ -37,8 +53,43 @@ jobs:
 
       - run: npm ci
 
+      # Der zuletzt veroeffentlichte Stand als Vergleichsbasis - bewusst per
+      # git und nicht ueber raw.githubusercontent.com: Dessen Auslieferung
+      # kann einige Minuten alt sein, und dann meldete der naechste Lauf
+      # denselben Ausfall ein zweites Mal.
+      # Beim allerersten Lauf gibt es den Zweig noch nicht - darum nachsichtig.
+      - name: Zuletzt veroeffentlichten Stand holen
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          ref: data
+          path: basis-stand
+          fetch-depth: 1
+
+      # Nur der Fuenf-Minuten-Takt laeuft verkuerzt. Alles andere - der
+      # stuendliche Lauf, die Tagesmeldungen und der Start von Hand - holt
+      # den vollstaendigen Plan.
+      - name: Betriebsart bestimmen
+        id: art
+        env:
+          # Ueber die Umgebung statt direkt in die Shell eingesetzt - so kann
+          # der Wert die Befehlszeile nicht zerbrechen.
+          ZEITPLAN: ${{ github.event.schedule }}
+          VONHAND: ${{ inputs.modus }}
+        run: |
+          if [ -n "$VONHAND" ]; then
+            MODUS="$VONHAND"           # Start von Hand: Betriebsart frei waehlbar
+          elif [ "$ZEITPLAN" = "*/5 4-16 * * 1-5" ]; then
+            MODUS=schnell
+          else
+            MODUS=voll
+          fi
+          echo "modus=$MODUS" >> "$GITHUB_OUTPUT"
+          echo "Betriebsart: $MODUS"
+
       - name: Plan holen, filtern und verschluesseln
         env:
+          MODUS: ${{ steps.art.outputs.modus }}
           UNTIS_SCHOOL: igs-osterholz-scharmbeck
           UNTIS_HOST: igs-osterholz-scharmbeck.webuntis.com
           UNTIS_USER: ${{ secrets.UNTIS_USER }}
@@ -47,7 +98,9 @@ jobs:
           APP_CODE: ${{ secrets.APP_CODE }}
           APP_CODE_JASPER: ${{ secrets.APP_CODE }}
           APP_CODE_CATALINA: ${{ secrets.APP_CODE_CATALINA }}
-          # Zuletzt veroeffentlichter Stand als Vergleichsbasis
+          # Vergleichsbasis: zuerst der ausgecheckte data-Zweig, ersatzweise
+          # die oeffentliche Adresse (falls der Zweig noch nicht existiert).
+          BASIS_DIR: basis-stand
           BASIS_URL: https://raw.githubusercontent.com/${{ github.repository }}
           # Oeffentliches Protokoll -> keine Inhalte ausgeben
           KNAPP: '1'
@@ -76,7 +129,7 @@ jobs:
         run: npm run abend
 
       - name: Morgenueberblick fuer heute
-        if: github.event.schedule == '30 4 * * 1-5'
+        if: github.event.schedule == '32 4 * * 1-5'
         env:
           VAPID_PUBLIC: ${{ secrets.VAPID_PUBLIC }}
           VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
@@ -87,7 +140,7 @@ jobs:
         run: npm run morgen
 
       - name: Hausaufgaben-Erinnerung fuer morgen
-        if: github.event.schedule == '40 13 * * 0-4'
+        if: github.event.schedule == '41 13 * * 0-4'
         env:
           VAPID_PUBLIC: ${{ secrets.VAPID_PUBLIC }}
           VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
@@ -104,6 +157,10 @@ jobs:
             exit 1
           fi
           mkdir out
+          # Erst den bisherigen Stand uebernehmen: Wurde eine Person diesmal
+          # uebersprungen (fehlendes Secret), bliebe ihre Datei sonst beim
+          # force-push auf der Strecke und ihre App stuende ohne Plan da.
+          cp basis-stand/*.enc.json out/ 2>/dev/null || true
           cp public/data/plan*.enc.json out/
           cd out
           git init -q -b data

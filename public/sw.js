@@ -2,17 +2,17 @@
 // reichert Push-Nachrichten um die eigenen Hausaufgaben an.
 // WICHTIG: Bei jedem App-Update die Versionsnummer hier UND die ?v=-Anhaenge
 // in index.html/app.js gemeinsam hochzaehlen.
-const CACHE = 'stundenplan-v20';
+const CACHE = 'stundenplan-v21';
 const HUELLE = [
   './',
   './index.html',
-  './styles.css?v=20',
-  './app.js?v=20',
-  './bereiche.mjs?v=20',
-  './daten.mjs?v=20',
-  './symbole.mjs?v=20',
-  './shared/konfiguration.mjs?v=20',
-  './shared/krypto.mjs?v=20',
+  './styles.css?v=21',
+  './app.js?v=21',
+  './bereiche.mjs?v=21',
+  './daten.mjs?v=21',
+  './symbole.mjs?v=21',
+  './shared/konfiguration.mjs?v=21',
+  './shared/krypto.mjs?v=21',
   './manifest.webmanifest',
   './icons/icon-180.png',
   './icons/icon-192.png',
@@ -209,9 +209,11 @@ self.addEventListener('fetch', (e) => {
       .catch(() =>
         caches.match(e.request, { ignoreSearch: true }).then((treffer) => {
           if (treffer) return treffer;
-          if (url.pathname.endsWith('.json')) {
-            return new Response('{}', { headers: { 'Content-Type': 'application/json' } });
-          }
+          // Frueher kam hier fuer .json-Pfade ein leeres "{}" mit Status 200
+          // zurueck. Die App hielt das fuer ein gueltiges Datenpaket, konnte
+          // es nicht entschluesseln - und verwarf daraufhin den gespeicherten
+          // Schluessel. Ergebnis: Offline musste man den Code neu eingeben.
+          // Ein ehrlicher Fehler ist besser als eine falsche Antwort.
           return new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
         })
       )
