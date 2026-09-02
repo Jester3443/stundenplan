@@ -9,7 +9,7 @@
 // Zusaetzlich haelt diese Datei den Abgleich zwischen mehreren Geraeten:
 // jedes Geraet arbeitet auf seinem eigenen Stand und schiebt ihn
 // verschluesselt in die Cloud; beim Laden werden beide Staende verschmolzen.
-import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=21';
+import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=22';
 
 const DB_NAME = 'stundenplan';
 const LADEN = 'werte';
@@ -329,6 +329,13 @@ function eintraege(daten) {
   for (const [k, v] of Object.entries(daten.gewichtung ?? {})) raus.set(`gewichtung${T}${k}`, v);
   return raus;
 }
+
+/**
+ * Wurde dieser Eintrag vom Nutzer geloescht?
+ * Gebraucht fuer Eintraege, die die App von sich aus vorschlaegt (etwa aus
+ * dem Klausurplan): Was einmal weggewischt wurde, darf nicht wiederkommen.
+ */
+export const istGeloescht = (daten, bereich, id) => !!daten?.geloescht?.[`${bereich}${T}${id}`];
 
 /** Setzt einen zerlegten Eintrag wieder an seinen Platz. */
 function einsetzen(ziel, pfad, wert) {

@@ -6,8 +6,8 @@ import {
   DATEN_URL,
   BENUTZER,
   setzeBenutzer,
-} from './shared/konfiguration.mjs?v=21';
-import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=21';
+} from './shared/konfiguration.mjs?v=22';
+import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=22';
 import {
   schluesselSichern,
   schluesselLaden,
@@ -21,8 +21,8 @@ import {
   verschmelze,
   pushAnmeldungHinterlegen,
   LEER,
-} from './daten.mjs?v=21';
-import { symbolFuer } from './symbole.mjs?v=21';
+} from './daten.mjs?v=22';
+import { symbolFuer } from './symbole.mjs?v=22';
 import {
   initBereiche,
   zeichneAufgaben,
@@ -35,10 +35,11 @@ import {
   aufgabenVorschau,
   lernenAm,
   aktualisiereStundenZaehler,
-} from './bereiche.mjs?v=21';
+  uebernehmeKlausurplan,
+} from './bereiche.mjs?v=22';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 21;
+const APP_VERSION = 22;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -1212,8 +1213,12 @@ async function starten({ frisch = false, leise = false } = {}) {
         }
       }
     }
-    // Vergangene Schultage in die Stundenstatistik aufnehmen (Basis der Fehlquote).
-    if (aktualisiereStundenZaehler() > 0) await speichern();
+    // Vergangene Schultage in die Stundenstatistik aufnehmen (Basis der Fehlquote)
+    // und neue Termine aus dem Klausurplan der Schule uebernehmen.
+    // Beides getrennt auswerten, damit nicht das eine das andere ueberspringt.
+    const neueTage = aktualisiereStundenZaehler();
+    const neueKlausuren = zustand.datenGeladen ? uebernehmeKlausurplan() : 0;
+    if (neueTage > 0 || neueKlausuren > 0) await speichern();
     // Mit den anderen Geräten abgleichen - im Hintergrund, damit die Anzeige
     // nicht wartet. Ergebnis kommt über setzeFremdaenderung zurück.
     if (zustand.datenGeladen && schluessel) {

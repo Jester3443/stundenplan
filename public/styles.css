@@ -1547,3 +1547,19 @@ body {
 }
 .daten-warnung strong { display: block; color: var(--fl-rot); margin-bottom: 3px; }
 .daten-warnung span { color: var(--text-leise); }
+
+/* Aufklappen der restlichen Klausurtermine */
+.mehr-knopf {
+  width: 100%;
+  margin: 8px 0 4px;
+  padding: 11px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--flaeche);
+  color: var(--akzent);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mehr-knopf:active { opacity: 0.6; }

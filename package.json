@@ -9,7 +9,7 @@
     "sync": "node scripts/sync.mjs 4",
     "sync:schnell": "node scripts/sync.mjs --schnell",
     "notkopie": "node scripts/notkopie.mjs",
-    "test": "node scripts/test-vergleich.mjs && node scripts/test-abgleich.mjs && node scripts/test-ipad.mjs",
+    "test": "node scripts/test-klausurplan.mjs && node scripts/test-vergleich.mjs && node scripts/test-abgleich.mjs && node scripts/test-ipad.mjs",
     "serve": "node scripts/server.mjs",
     "icons": "node scripts/icons.mjs",
     "push": "node scripts/push.mjs",

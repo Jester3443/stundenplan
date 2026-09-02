@@ -1,9 +1,10 @@
 // Die drei Bereiche neben dem Stundenplan: Aufgaben, Noten, Mehr.
 // Bekommt beim Start alles Noetige von app.js uebergeben - so gibt es
 // keine gegenseitigen Importe zwischen den Dateien.
-import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=21';
-import { symbolFuer } from './symbole.mjs?v=21';
-import { neueId } from './daten.mjs?v=21';
+import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=22';
+import { symbolFuer } from './symbole.mjs?v=22';
+import { neueId, istGeloescht } from './daten.mjs?v=22';
+import { klausurenFuer } from './shared/klausurplan.mjs?v=22';
 
 let A = null; // die von app.js gereichten Hilfsmittel
 export function initBereiche(api) {
@@ -29,6 +30,13 @@ function datumText(datum) {
   const wochentag = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][d.getDay()];
   return `${wochentag}, ${d.getDate()}.${d.getMonth() + 1}.`;
 }
+
+/** So viele Tage vor einer Klausur wird der Lernplan aufgeklappt. */
+const LERNPLAN_AB_TAGEN = 14;
+/** So viele Klausuren stehen ausfuehrlich da, bevor zusammengeklappt wird. */
+const KLAUSUREN_KURZ = 4;
+/** Sind gerade alle Klausurtermine aufgeklappt? */
+let alleKlausurenZeigen = false;
 
 const restText = (abstand) =>
   abstand === 0 ? 'heute' : abstand === 1 ? 'morgen' : abstand < 0 ? `vor ${-abstand} Tagen` : `in ${abstand} Tagen`;
@@ -438,7 +446,10 @@ function klausurKarte(klausur) {
   huelle.append(el);
 
   // Lernplan: Etappen bis zur Klausur, abhakbar.
-  const plan = lernplanFuer(klausur);
+  // Nur bei Klausuren, die wirklich anstehen. Seit der Klausurplan der Schule
+  // eingelesen wird, reichen die Termine bis in den Mai - einen Lernplan zwei
+  // Monate im Voraus aufzuklappen waere nur Laerm.
+  const plan = abstand <= LERNPLAN_AB_TAGEN ? lernplanFuer(klausur) : [];
   if (plan.length) {
     const liste = document.createElement('div');
     liste.className = 'lernplan';
@@ -617,12 +628,33 @@ export function zeichneAufgaben(ziel) {
 
   // --- Klausuren ---
   ziel.append(ueberschrift('Klausuren', '+ Eintragen', () => klausurBearbeiten()));
-  const kommende = daten.klausuren.filter((k) => tageBis(k.datum) >= 0);
+  const kommende = daten.klausuren
+    .filter((k) => tageBis(k.datum) >= 0)
+    .sort((a, b) => a.datum.localeCompare(b.datum));
   if (kommende.length) {
     const box = document.createElement('div');
     box.className = 'klausur-liste';
-    for (const k of kommende) box.append(klausurKarte(k));
+    // Der Klausurplan der Schule bringt ueber zwanzig Termine bis zum Sommer
+    // mit. Ungekuerzt waere die Seite eine endlose Liste - also nur die
+    // naechsten zeigen und den Rest auf Wunsch aufklappen.
+    for (const k of alleKlausurenZeigen ? kommende : kommende.slice(0, KLAUSUREN_KURZ)) {
+      box.append(klausurKarte(k));
+    }
     ziel.append(box);
+
+    if (kommende.length > KLAUSUREN_KURZ) {
+      const mehr = document.createElement('button');
+      mehr.type = 'button';
+      mehr.className = 'mehr-knopf';
+      mehr.textContent = alleKlausurenZeigen
+        ? 'Weniger anzeigen'
+        : `Alle ${kommende.length} Termine anzeigen`;
+      mehr.addEventListener('click', () => {
+        alleKlausurenZeigen = !alleKlausurenZeigen;
+        A.zeichnen();
+      });
+      ziel.append(mehr);
+    }
   } else {
     ziel.append(leerBox('Keine Klausuren', 'Trag deine Termine ein, dann zählt die App die Tage herunter.'));
   }
@@ -919,6 +951,39 @@ export function stattgefundeneStunden(kuerzel) {
   let summe = daten.stundenSumme?.[kuerzel] ?? 0;
   for (const tag of Object.values(daten.tagesStunden ?? {})) summe += tag[kuerzel] ?? 0;
   return summe;
+}
+
+/**
+ * Traegt die Klausuren aus dem offiziellen Klausurplan der Schule ein.
+ *
+ * Warum ueberhaupt eintragen und nicht nur anzeigen: So verhalten sie sich
+ * genau wie selbst angelegte Klausuren - Countdown, Lernplan und die
+ * Notenuebersicht funktionieren ohne Sonderfaelle, und ein Thema laesst
+ * sich ergaenzen.
+ *
+ * Die Kennung ist bewusst aus Fach und Datum gebaut statt zufaellig. Damit
+ * erkennt die App einen Termin wieder - und wer ihn loescht, bekommt ihn
+ * nicht beim naechsten Start erneut vorgesetzt (der Loeschvermerk aus dem
+ * Geraete-Abgleich sorgt dafuer, sogar ueber Handy und iPad hinweg).
+ */
+export function uebernehmeKlausurplan() {
+  const daten = A.zustand.meineDaten;
+  daten.klausuren ??= [];
+  let neue = 0;
+
+  for (const termin of klausurenFuer(KURSE)) {
+    const id = `plan|${termin.kurs}|${termin.datum}`;
+    if (daten.klausuren.some((k) => k.id === id)) continue;
+    if (istGeloescht(daten, 'klausuren', id)) continue;
+    // Schon von Hand eingetragen? Dann den eigenen Eintrag stehen lassen.
+    if (daten.klausuren.some((k) => k.kurs === termin.kurs && k.datum === termin.datum)) continue;
+
+    daten.klausuren.push({ id, kurs: termin.kurs, datum: termin.datum, thema: '', quelle: 'klausurplan' });
+    neue++;
+  }
+
+  if (neue) daten.klausuren.sort((a, b) => a.datum.localeCompare(b.datum));
+  return neue;
 }
 
 /**
