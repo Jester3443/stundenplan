@@ -44,6 +44,31 @@ export const KLAUSURPLAN = [
   { datum: '2027-05-20', kurse: ['ch1-mtf', 'en2-mar', 'ph1-sim'] },
 ];
 
+/**
+ * Die beiden Halbjahre mit ihrem Notenschluss - beides steht im Klausurplan.
+ *
+ * Der Notenschluss ist der Tag, bis zu dem Noten fuer das Zeugnis zaehlen.
+ * Danach steht die Note fest, auch wenn der Unterricht noch weiterlaeuft.
+ * Genau bis dahin lohnt es sich, muendliche Noten zu sammeln.
+ */
+export const HALBJAHRE = [
+  { name: '1. Halbjahr', kurz: '1. HJ', von: '2026-08-01', notenschluss: '2026-12-10', ende: '2026-12-22' },
+  { name: '2. Halbjahr', kurz: '2. HJ', von: '2026-12-23', notenschluss: '2027-06-22', ende: '2027-07-10' },
+];
+
+/** In welchem Halbjahr liegt dieses Datum? Null, wenn ausserhalb. */
+export const halbjahrZu = (datum) =>
+  HALBJAHRE.find((h) => datum >= h.von && datum <= h.ende) ?? null;
+
+/**
+ * Das Halbjahr, das gerade laeuft.
+ * Vor dem Schuljahr das erste, danach das letzte - so steht die App nie
+ * ohne Bezug da.
+ */
+export function aktuellesHalbjahr(datum) {
+  return halbjahrZu(datum) ?? (datum < HALBJAHRE[0].von ? HALBJAHRE[0] : HALBJAHRE[HALBJAHRE.length - 1]);
+}
+
 /** Zerlegt "GE1-MEIR" in Kuerzel und Lehrkraft. */
 function zerlege(eintrag) {
   const strich = eintrag.lastIndexOf('-');

@@ -6,8 +6,8 @@ import {
   DATEN_URL,
   BENUTZER,
   setzeBenutzer,
-} from './shared/konfiguration.mjs?v=22';
-import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=22';
+} from './shared/konfiguration.mjs?v=23';
+import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=23';
 import {
   schluesselSichern,
   schluesselLaden,
@@ -21,8 +21,8 @@ import {
   verschmelze,
   pushAnmeldungHinterlegen,
   LEER,
-} from './daten.mjs?v=22';
-import { symbolFuer } from './symbole.mjs?v=22';
+} from './daten.mjs?v=23';
+import { symbolFuer } from './symbole.mjs?v=23';
 import {
   initBereiche,
   zeichneAufgaben,
@@ -36,10 +36,12 @@ import {
   lernenAm,
   aktualisiereStundenZaehler,
   uebernehmeKlausurplan,
-} from './bereiche.mjs?v=22';
+  noteFuerStunde,
+  noteZurStunde,
+} from './bereiche.mjs?v=23';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 22;
+const APP_VERSION = 23;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -547,9 +549,13 @@ function stundenKarte(s, jetztMin, istHeute) {
 
   const kopf = document.createElement('div');
   kopf.className = 'karte-kopf';
+  // Eingetragene Note gleich auf der Karte zeigen - so sieht man auf einen
+  // Blick, in welchen Stunden schon etwas steht.
+  const note = s.kurs ? noteZurStunde(s) : null;
   kopf.innerHTML =
     `<h2 class="fach">${symbolFuer(s.fachName, { groesse: 16, strich: 1.9 })}${s.fachName || s.kurs || 'Termin'}</h2>` +
     (s.niveau ? `<span class="niveau">${s.niveau}</span>` : '') +
+    (note ? `<span class="stunde-note${note.art === 'klausur' ? ' klausur' : ''}">${note.punkte}</span>` : '') +
     (laeuft ? `<span class="rest">noch ${minuten(s.bis) - jetztMin} Min</span>` : '');
 
   const zeile = document.createElement('p');
@@ -904,6 +910,10 @@ function zeichneWoche(ziel) {
 
 let offeneStunde = null;
 
+/** Steht an diesem Tag in diesem Fach eine Klausur an? */
+const istKlausurStunde = (s) =>
+  !!s.kurs && (zustand.meineDaten.klausuren ?? []).some((k) => k.kurs === s.kurs && k.datum === s.datum);
+
 function oeffneStunde(s) {
   offeneStunde = s;
   const eigene = eintragVon(s);
@@ -961,6 +971,26 @@ function oeffneStunde(s) {
     el.innerHTML = '<span class="notiz-kopf">Hinweis</span>';
     el.append(document.createTextNode(s.text));
     bereich.append(el);
+  }
+
+  // Note fuer diese Stunde: der Kern von Catalinas Wunsch. Ein Tipp hier,
+  // Punktzahl eintragen, fertig - Fach, Datum und Art sind schon gesetzt.
+  const notenKnopf = $('modalNote');
+  const note = s.kurs ? noteZurStunde(s) : null;
+  notenKnopf.hidden = !s.kurs;
+  if (s.kurs) {
+    notenKnopf.innerHTML = note
+      ? `<span class="snk-punkte">${note.punkte}</span>` +
+        `<span class="snk-text">${note.art === 'klausur' ? 'Klausur' : 'Mündliche Note'}` +
+        `<span class="snk-fein">${note.titel || 'Tippen zum Ändern'}</span></span>`
+      : `<span class="snk-plus">+</span>` +
+        `<span class="snk-text">Note für diese Stunde` +
+        `<span class="snk-fein">${istKlausurStunde(s) ? 'Klausur – Punkte eintragen' : 'Mündlich – Punkte eintragen'}</span></span>`;
+    notenKnopf.onclick = () => {
+      const stunde = offeneStunde;
+      schliesseStunde({ speichernJa: false });
+      noteFuerStunde(stunde);
+    };
   }
 
   $('notizAufgabe').value = eigene.aufgabe ?? '';

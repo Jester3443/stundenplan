@@ -1,10 +1,10 @@
 // Die drei Bereiche neben dem Stundenplan: Aufgaben, Noten, Mehr.
 // Bekommt beim Start alles Noetige von app.js uebergeben - so gibt es
 // keine gegenseitigen Importe zwischen den Dateien.
-import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=22';
-import { symbolFuer } from './symbole.mjs?v=22';
-import { neueId, istGeloescht } from './daten.mjs?v=22';
-import { klausurenFuer } from './shared/klausurplan.mjs?v=22';
+import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=23';
+import { symbolFuer } from './symbole.mjs?v=23';
+import { neueId, istGeloescht } from './daten.mjs?v=23';
+import { klausurenFuer, HALBJAHRE, aktuellesHalbjahr } from './shared/klausurplan.mjs?v=23';
 
 let A = null; // die von app.js gereichten Hilfsmittel
 export function initBereiche(api) {
@@ -728,50 +728,122 @@ const GEWICHT_STANDARD = 40;
 export const gewichtVon = (kuerzel) =>
   A.zustand.meineDaten.gewichtung?.[kuerzel] ?? (kuerzel === 'sf3' ? 50 : GEWICHT_STANDARD);
 
-export function kursSchnitt(kuerzel) {
+/** Welches Halbjahr zeigt die Notenseite gerade? */
+let gewaehltesHalbjahr = null;
+const halbjahrJetzt = () => gewaehltesHalbjahr ?? aktuellesHalbjahr(heute());
+
+/**
+ * Die Noten eines Fachs in einem Halbjahr.
+ * Zeugnisnoten gelten je Halbjahr - also darf der Schnitt auch nur die
+ * Noten aus diesem Halbjahr enthalten.
+ */
+function notenIm(kuerzel, halbjahr) {
   const liste = A.zustand.meineDaten.noten[kuerzel] ?? [];
-  if (!liste.length) return null;
-  const anteilSchriftlich = gewichtVon(kuerzel) / 100;
-
-  const mittel = (art) => {
-    const teil = liste.filter((n) => (art === 'klausur' ? n.art === 'klausur' : n.art !== 'klausur'));
-    if (!teil.length) return null;
-    return teil.reduce((s, n) => s + Number(n.punkte), 0) / teil.length;
-  };
-
-  const schriftlich = mittel('klausur');
-  const sonstige = mittel('sonstige');
-  if (schriftlich !== null && sonstige !== null) {
-    return schriftlich * anteilSchriftlich + sonstige * (1 - anteilSchriftlich);
-  }
-  return schriftlich ?? sonstige;
+  if (!halbjahr) return liste;
+  return liste.filter((n) => !n.datum || (n.datum >= halbjahr.von && n.datum <= halbjahr.ende));
 }
 
-export function gesamtSchnitt() {
-  const werte = KURSE.map((k) => kursSchnitt(k.kuerzel)).filter((w) => w !== null);
+/**
+ * Schriftlicher und muendlicher Schnitt sowie das gewichtete Ergebnis.
+ *
+ * WICHTIG: Eine nicht eingetragene Note ist KEINE Null. Fehlt eine Seite
+ * ganz (etwa noch keine Klausur geschrieben), zaehlt allein die andere -
+ * es wird nichts hinzugerechnet und nichts abgezogen.
+ */
+export function mittelwerte(kuerzel, halbjahr = halbjahrJetzt()) {
+  const liste = notenIm(kuerzel, halbjahr);
+  const schriftlicheNoten = liste.filter((n) => n.art === 'klausur');
+  const muendlicheNoten = liste.filter((n) => n.art !== 'klausur');
+
+  const mittel = (teil) =>
+    teil.length ? teil.reduce((s, n) => s + Number(n.punkte), 0) / teil.length : null;
+
+  const schriftlich = mittel(schriftlicheNoten);
+  const muendlich = mittel(muendlicheNoten);
+  const anteil = gewichtVon(kuerzel) / 100;
+
+  let gesamt = null;
+  if (schriftlich !== null && muendlich !== null) {
+    gesamt = schriftlich * anteil + muendlich * (1 - anteil);
+  } else {
+    gesamt = schriftlich ?? muendlich;
+  }
+
+  return {
+    schriftlich,
+    muendlich,
+    gesamt,
+    anzahlSchriftlich: schriftlicheNoten.length,
+    anzahlMuendlich: muendlicheNoten.length,
+    liste,
+  };
+}
+
+export function kursSchnitt(kuerzel, halbjahr = halbjahrJetzt()) {
+  return mittelwerte(kuerzel, halbjahr).gesamt;
+}
+
+export function gesamtSchnitt(halbjahr = halbjahrJetzt()) {
+  const werte = KURSE.map((k) => kursSchnitt(k.kuerzel, halbjahr)).filter((w) => w !== null);
   if (!werte.length) return null;
   return werte.reduce((s, w) => s + w, 0) / werte.length;
 }
 
-function noteBearbeiten(kuerzel, note = null) {
+/**
+ * Gibt es an diesem Tag in diesem Fach eine Klausur?
+ * Catalinas Beobachtung: Alles ist muendlich - ausser man hat eine Arbeit
+ * geschrieben. Also wird die Art danach vorbelegt und muss im Normalfall
+ * gar nicht angefasst werden.
+ */
+function istKlausurtag(kuerzel, datum) {
+  return (A.zustand.meineDaten.klausuren ?? []).some((k) => k.kurs === kuerzel && k.datum === datum);
+}
+
+/** Die Note, die zu einer konkreten Stunde gehoert (falls es eine gibt). */
+export function noteZurStunde(stunde) {
+  if (!stunde?.kurs) return null;
+  return (A.zustand.meineDaten.noten?.[stunde.kurs] ?? []).find(
+    (n) => n.datum === stunde.datum && (n.stunde === stunde.von || !n.stunde)
+  ) ?? null;
+}
+
+/**
+ * Note fuer eine bestimmte Stunde eintragen oder aendern.
+ * Fach, Datum und Art sind damit schon gesetzt - es bleibt die Punktzahl.
+ */
+export function noteFuerStunde(stunde) {
+  if (!stunde?.kurs) return;
+  const vorhanden = noteZurStunde(stunde);
+  noteBearbeiten(stunde.kurs, vorhanden, {
+    datum: stunde.datum,
+    stunde: stunde.von,
+    art: istKlausurtag(stunde.kurs, stunde.datum) ? 'klausur' : 'sonstige',
+  });
+}
+
+function noteBearbeiten(kuerzel, note = null, vorgabe = {}) {
   const kurs = kursVon(kuerzel);
+  const datum = note?.datum ?? vorgabe.datum ?? heute();
+  const art = note?.art ?? vorgabe.art ?? 'sonstige';
   oeffneEingabe({
     titel: note ? 'Note bearbeiten' : `Note in ${kurs?.fach ?? kuerzel}`,
-    unterzeile: 'Punkte von 0 bis 15 wie in der Oberstufe.',
+    unterzeile: vorgabe.stunde
+      ? `${datumText(datum)} · ${vorgabe.stunde} Uhr · Punkte von 0 bis 15`
+      : 'Punkte von 0 bis 15 wie in der Oberstufe.',
     felder: [
       {
         name: 'art',
         label: 'Art',
         typ: 'auswahl',
-        wert: note?.art ?? 'sonstige',
+        wert: art,
         optionen: [
-          { wert: 'klausur', text: 'Klausur' },
           { wert: 'sonstige', text: 'Mündlich / Test' },
+          { wert: 'klausur', text: 'Klausur' },
         ],
       },
       { name: 'punkte', label: 'Punkte (0–15)', typ: 'zahl', wert: note?.punkte ?? '', pflicht: true },
-      { name: 'titel', label: 'Bezeichnung (optional)', typ: 'text', wert: note?.titel ?? '', platzhalter: 'z. B. 1. Klausur' },
-      { name: 'datum', label: 'Datum', typ: 'datum', wert: note?.datum ?? heute() },
+      { name: 'titel', label: 'Bezeichnung (optional)', typ: 'text', wert: note?.titel ?? '', platzhalter: 'z. B. Unterrichtsbeitrag' },
+      { name: 'datum', label: 'Datum', typ: 'datum', wert: datum },
     ],
     beimSichern: async (werte) => {
       const punkte = Math.max(0, Math.min(15, Number(werte.punkte)));
@@ -781,7 +853,8 @@ function noteBearbeiten(kuerzel, note = null) {
       if (note) {
         Object.assign(note, { ...werte, punkte });
       } else {
-        daten.noten[kuerzel].push({ id: neueId(), ...werte, punkte });
+        // stunde merken, damit die Note auf der richtigen Stundenkarte auftaucht
+        daten.noten[kuerzel].push({ id: neueId(), ...werte, punkte, stunde: vorgabe.stunde });
       }
       daten.noten[kuerzel].sort((a, b) => (b.datum ?? '').localeCompare(a.datum ?? ''));
       await A.speichern();
@@ -832,19 +905,47 @@ function gewichtBearbeiten(kuerzel) {
 export function zeichneNoten(ziel) {
   ziel.textContent = '';
 
-  const schnitt = gesamtSchnitt();
+  const halbjahr = halbjahrJetzt();
+  const schnitt = gesamtSchnitt(halbjahr);
+  const stunden = stundenImHalbjahr(halbjahr);
+
+  // Umschalter zwischen den Halbjahren - Zeugnisnoten gelten je Halbjahr.
+  const wahl = document.createElement('div');
+  wahl.className = 'umschalter hj-wahl';
+  for (const hj of HALBJAHRE) {
+    const knopf = document.createElement('button');
+    knopf.type = 'button';
+    knopf.className = `um-knopf${hj === halbjahr ? ' aktiv' : ''}`;
+    knopf.textContent = hj.name;
+    knopf.addEventListener('click', () => {
+      gewaehltesHalbjahr = hj;
+      A.zeichnen();
+    });
+    wahl.append(knopf);
+  }
+  ziel.append(wahl);
 
   const kopf = document.createElement('div');
   kopf.className = 'noten-kopf';
+  const bisNotenschluss = tageBis(halbjahr.notenschluss);
+  const notenschlussText =
+    bisNotenschluss > 0
+      ? `Notenschluss ${datumText(halbjahr.notenschluss)} · noch ${bisNotenschluss} Tage`
+      : `Notenschluss war ${datumText(halbjahr.notenschluss)}`;
   kopf.innerHTML = schnitt
     ? `<div class="noten-zahl">${schnitt.toFixed(1)}</div>` +
-      `<div class="noten-unter">Punkte im Schnitt · entspricht ${punkteZuNote(schnitt)}</div>`
-    : `<div class="noten-zahl leer">–</div><div class="noten-unter">Noch keine Noten eingetragen</div>`;
+      `<div class="noten-unter">Punkte im Schnitt · entspricht ${punkteZuNote(schnitt)}</div>` +
+      `<div class="noten-fein">${notenschlussText}</div>`
+    : `<div class="noten-zahl leer">–</div>` +
+      `<div class="noten-unter">Noch keine Noten im ${halbjahr.name}</div>` +
+      `<div class="noten-fein">${notenschlussText}</div>`;
   ziel.append(kopf);
 
   for (const kurs of KURSE) {
-    const liste = A.zustand.meineDaten.noten[kurs.kuerzel] ?? [];
-    const eigen = kursSchnitt(kurs.kuerzel);
+    const werte = mittelwerte(kurs.kuerzel, halbjahr);
+    const liste = werte.liste;
+    const eigen = werte.gesamt;
+    const stundenKurs = stunden[kurs.kuerzel];
 
     const karte = document.createElement('div');
     karte.className = 'noten-karte';
@@ -869,6 +970,38 @@ export function zeichneNoten(ziel) {
 
     const details = document.createElement('div');
     details.className = 'noten-details';
+
+    // Wie viele Gelegenheiten gibt es in diesem Halbjahr - und wie viele
+    // Noten stehen schon drin? Das ist die Frage, die Catalina gestellt hat.
+    if (stundenKurs?.gesamt) {
+      const zaehler = document.createElement('p');
+      zaehler.className = 'noten-stunden';
+      const offen = Math.max(0, stundenKurs.gesamt - stundenKurs.bisher);
+      zaehler.innerHTML =
+        `<strong>${stundenKurs.gesamt} Stunden</strong> bis zum Notenschluss · ` +
+        `${stundenKurs.bisher} vorbei, ${offen} noch vor dir`;
+      details.append(zaehler);
+    }
+
+    // Muendlich und schriftlich getrennt zeigen: So ist sichtbar, wie das
+    // gewichtete Ergebnis zustande kommt - und dass eine fehlende Seite
+    // nichts kaputtmacht.
+    const aufteilung = document.createElement('div');
+    aufteilung.className = 'noten-aufteilung';
+    const teilZeile = (name, wert, anzahl, anteil) => {
+      const el = document.createElement('div');
+      el.className = 'nt-teil';
+      el.innerHTML =
+        `<span class="nt-name">${name}<span class="nt-anteil">${anteil} %</span></span>` +
+        `<span class="nt-wert">${wert === null ? '–' : wert.toFixed(1)}</span>` +
+        `<span class="nt-anzahl">${anzahl === 0 ? 'noch keine' : anzahl === 1 ? '1 Note' : `${anzahl} Noten`}</span>`;
+      return el;
+    };
+    const anteilS = gewichtVon(kurs.kuerzel);
+    aufteilung.append(teilZeile('Schriftlich', werte.schriftlich, werte.anzahlSchriftlich, anteilS));
+    aufteilung.append(teilZeile('Mündlich', werte.muendlich, werte.anzahlMuendlich, 100 - anteilS));
+    details.append(aufteilung);
+
     for (const note of liste) {
       const eintrag = document.createElement('button');
       eintrag.type = 'button';
@@ -903,8 +1036,10 @@ export function zeichneNoten(ziel) {
   const fuss = document.createElement('p');
   fuss.className = 'bereich-fuss';
   fuss.textContent =
-    'Die Gewichtung legt in Niedersachsen die Fachkonferenz jedes Fachs fest – es gibt keine landesweite Vorgabe. ' +
-    'Tipp auf ein Fach und dann auf die Gewichtung, um sie anzupassen; frag den Wert bei deiner Lehrkraft ab.';
+    'Eine Stunde ohne eingetragene Note zählt nicht als null – es zählen nur die Noten, die wirklich drinstehen. ' +
+    'Fehlt eine Seite ganz, etwa noch keine Klausur, entscheidet allein die andere. ' +
+    'Die Gewichtung legt in Niedersachsen die Fachkonferenz jedes Fachs fest, es gibt keine landesweite Vorgabe – ' +
+    'tipp auf ein Fach und dann auf die Gewichtung, um sie anzupassen.';
   ziel.append(fuss);
 }
 
@@ -1035,18 +1170,14 @@ function istFrei(datum) {
  * Wochen weit heraus, es gibt keine Historie. Wuerde die App nur mitzaehlen,
  * stuende monatelang "zu wenig Daten" da.
  */
-export function geplanteStunden() {
-  const beginn = A.zustand.plan?.schuljahr?.von;
-  if (!beginn) return {};
-
+function stundenImZeitraum(von, bis, mitLetztemTag = true) {
   const rhythmus = wochenRhythmus();
   const summe = {};
-  const bis = heute();
 
-  const tag = new Date(`${beginn}T12:00:00`);
+  const tag = new Date(`${von}T12:00:00`);
   const ende = new Date(`${bis}T12:00:00`);
 
-  while (tag < ende) {
+  while (mitLetztemTag ? tag <= ende : tag < ende) {
     const wt = tag.getDay();
     if (wt !== 0 && wt !== 6) {
       const datum = A.iso(tag);
@@ -1060,6 +1191,42 @@ export function geplanteStunden() {
     tag.setDate(tag.getDate() + 1);
   }
   return summe;
+}
+
+export function geplanteStunden() {
+  const beginn = A.zustand.plan?.schuljahr?.von;
+  if (!beginn) return {};
+  // Ohne den heutigen Tag: der ist noch nicht vorbei.
+  return stundenImZeitraum(beginn, heute(), false);
+}
+
+/**
+ * Wie viele Stunden hat man in einem Halbjahr je Fach - insgesamt bis zum
+ * Notenschluss und wie viele davon schon vorbei sind.
+ *
+ * Das ist die Frage hinter "wie viele Gelegenheiten habe ich noch?".
+ * Hochgerechnet aus dem Wochenrhythmus, weil WebUntis den Plan nur wenige
+ * Wochen weit herausgibt - eine echte Zaehlung waere gar nicht moeglich.
+ */
+export function stundenImHalbjahr(halbjahr) {
+  const beginn = A.zustand.plan?.schuljahr?.von;
+  if (!beginn || !halbjahr) return {};
+
+  const von = halbjahr.von > beginn ? halbjahr.von : beginn;
+  const gesamt = stundenImZeitraum(von, halbjahr.notenschluss);
+
+  // "Schon vorbei" endet beim heutigen Tag - oder beim Notenschluss,
+  // wenn der schon durch ist.
+  const bisher =
+    heute() <= von
+      ? {}
+      : stundenImZeitraum(von, heute() < halbjahr.notenschluss ? heute() : halbjahr.notenschluss, false);
+
+  const raus = {};
+  for (const kurs of new Set([...Object.keys(gesamt), ...Object.keys(bisher)])) {
+    raus[kurs] = { gesamt: gesamt[kurs] ?? 0, bisher: bisher[kurs] ?? 0 };
+  }
+  return raus;
 }
 
 /** Wie viele Stunden hat Jasper in einem Fach verpasst? */
