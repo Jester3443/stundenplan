@@ -1284,6 +1284,13 @@ body {
 .zaehler.warnung .zaehler-zahl { color: var(--fl-orange); }
 
 .fehlzeit {
+  margin-bottom: 6px;
+  border-radius: var(--radius);
+  background: var(--flaeche);
+  color: var(--text);
+  overflow: hidden;
+}
+.fehlzeit-kopf {
   appearance: none; border: none; font: inherit; text-align: left;
   width: 100%;
   display: grid;
@@ -1291,16 +1298,53 @@ body {
   align-items: center;
   gap: 11px;
   padding: 12px 15px;
-  margin-bottom: 6px;
-  border-radius: var(--radius);
-  background: var(--flaeche);
-  color: var(--text);
+  background: transparent;
+  color: inherit;
   cursor: pointer;
 }
 .fehlzeit-datum { font-size: 14px; font-weight: 650; }
 .fehlzeit-text { font-size: 13px; color: var(--text-leise); }
 .fehlzeit-marke { font-size: 12px; font-weight: 700; color: var(--fl-gruen); }
 .fehlzeit.offen .fehlzeit-marke { color: var(--fl-orange); }
+
+/* Je Fach ein Haken: bei wem ist die Entschuldigung schon abgegeben? */
+.fehlzeit-faecher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 0 15px 12px;
+}
+.fach-chip {
+  appearance: none; border: none; font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px 6px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fach-farbe, var(--fl-grau)) 16%, var(--flaeche));
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--fach-farbe, var(--fl-grau)) 55%, transparent);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+.fach-chip:active { opacity: 0.6; }
+.fach-chip-haken {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--fach-farbe, var(--fl-grau)) 70%, transparent);
+}
+.fach-chip.erledigt { background: color-mix(in srgb, var(--fach-farbe, var(--fl-grau)) 28%, var(--flaeche)); }
+.fach-chip.erledigt .fach-chip-haken { background: var(--fach-farbe, var(--fl-grau)); box-shadow: none; }
+.fach-chip.erledigt span:last-child { text-decoration: line-through; opacity: 0.7; }
 
 /* ================================================================= Menue */
 
@@ -1500,6 +1544,9 @@ body {
 .ng-wert { font-weight: 650; color: var(--fach-farbe); }
 :root { --fl-gelb: #FFD426; }
 @media (prefers-color-scheme: light) { :root { --fl-gelb: #C79100; } }
+/* Sport */
+:root { --fl-mint: #63E6E2; }
+@media (prefers-color-scheme: light) { :root { --fl-mint: #00A39B; } }
 
 /* Personenauswahl im Anmeldefenster */
 .sperre-wer { display: flex; gap: 6px; width: 100%; }
@@ -1655,3 +1702,7 @@ body {
 .snk-plus { background: transparent; box-shadow: inset 0 0 0 1.5px var(--rand); color: var(--text-leise); font-size: 20px; }
 .snk-text { font-size: 15px; font-weight: 600; line-height: 1.25; }
 .snk-fein { display: block; font-size: 13px; font-weight: 400; color: var(--text-leise); }
+
+/* Hinweis auf offene Entschuldigungen am Tag */
+.banner.entschuldigung { background: color-mix(in srgb, var(--fl-rot) 16%, var(--flaeche)); }
+.banner.entschuldigung .banner-titel::before { background: var(--fl-rot); }

@@ -1,10 +1,10 @@
 // Die drei Bereiche neben dem Stundenplan: Aufgaben, Noten, Mehr.
 // Bekommt beim Start alles Noetige von app.js uebergeben - so gibt es
 // keine gegenseitigen Importe zwischen den Dateien.
-import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=23';
-import { symbolFuer } from './symbole.mjs?v=23';
-import { neueId, istGeloescht } from './daten.mjs?v=23';
-import { klausurenFuer, HALBJAHRE, aktuellesHalbjahr } from './shared/klausurplan.mjs?v=23';
+import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=24';
+import { symbolFuer } from './symbole.mjs?v=24';
+import { neueId, istGeloescht } from './daten.mjs?v=24';
+import { klausurenFuer, HALBJAHRE, aktuellesHalbjahr } from './shared/klausurplan.mjs?v=24';
 
 let A = null; // die von app.js gereichten Hilfsmittel
 export function initBereiche(api) {
@@ -1230,6 +1230,62 @@ export function stundenImHalbjahr(halbjahr) {
 }
 
 /** Wie viele Stunden hat Jasper in einem Fach verpasst? */
+/**
+ * Entschuldigungen gelten JE FACH: Jasper muss sich bei jeder Lehrkraft
+ * einzeln schriftlich entschuldigen. Deshalb merkt sich ein Fehltag, bei
+ * welchen Faechern das schon passiert ist (entschuldigtBei), und der
+ * Gesamtstatus ergibt sich daraus.
+ */
+const faecherVon = (f) => [...new Set((f.stunden ?? []).map((st) => st.kurs).filter(Boolean))];
+
+export function istEntschuldigt(f, kurs) {
+  if (f.entschuldigt === 'ja' && !f.entschuldigtBei) return true; // alter Eintrag: ganzer Tag
+  return !!f.entschuldigtBei?.[kurs];
+}
+
+/** Faecher eines Fehltags, bei denen die Entschuldigung noch aussteht. */
+export function offeneFaecher(f) {
+  return faecherVon(f).filter((kurs) => !istEntschuldigt(f, kurs));
+}
+
+/** Ist bei diesem Fehltag noch irgendetwas offen? */
+export function istOffen(f) {
+  if (faecherVon(f).length) return offeneFaecher(f).length > 0;
+  return f.entschuldigt === 'nein';
+}
+
+/** Ein Fach abhaken oder wieder oeffnen. Haelt den Gesamtstatus mit. */
+function entschuldigungUmschalten(f, kurs) {
+  f.entschuldigtBei ??= {};
+  // Alter Ganztags-Eintrag wird beim ersten Antippen in Einzelfaecher aufgeloest.
+  if (f.entschuldigt === 'ja' && Object.keys(f.entschuldigtBei).length === 0) {
+    for (const k of faecherVon(f)) f.entschuldigtBei[k] = true;
+  }
+  if (f.entschuldigtBei[kurs]) delete f.entschuldigtBei[kurs];
+  else f.entschuldigtBei[kurs] = true;
+  f.entschuldigt = offeneFaecher(f).length ? 'nein' : 'ja';
+}
+
+/**
+ * Stunden eines Tages, vor denen noch eine Entschuldigung abzugeben ist -
+ * Unterricht in einem Fach, bei dem irgendein Fehltag noch offen ist.
+ * Gleiche Regel wie auf dem Server (scripts/eigene-daten.mjs).
+ */
+export function entschuldigungenAm(datum) {
+  const offen = new Set();
+  for (const f of A.zustand.meineDaten.fehlzeiten ?? []) for (const k of offeneFaecher(f)) offen.add(k);
+  if (!offen.size) return [];
+  const tag = A.alleTage().find((t) => t.datum === datum);
+  const gesehen = new Set();
+  const raus = [];
+  for (const s of tag?.stunden ?? []) {
+    if (!s.kurs || !offen.has(s.kurs) || s.status === 'CANCELLED' || gesehen.has(s.kurs)) continue;
+    gesehen.add(s.kurs);
+    raus.push(s);
+  }
+  return raus;
+}
+
 function verpasstIn(kuerzel) {
   let gesamt = 0;
   let unentschuldigt = 0;
@@ -1237,7 +1293,7 @@ function verpasstIn(kuerzel) {
     for (const st of f.stunden ?? []) {
       if (st.kurs !== kuerzel) continue;
       gesamt++;
-      if (f.entschuldigt === 'nein') unentschuldigt++;
+      if (!istEntschuldigt(f, st.kurs)) unentschuldigt++;
     }
   }
   return { gesamt, unentschuldigt };
@@ -1319,8 +1375,18 @@ function fehlzeitBearbeiten(eintrag = null) {
     ],
     beimSichern: async (werte) => {
       const daten = A.zustand.meineDaten;
-      if (eintrag) Object.assign(eintrag, werte);
-      else daten.fehlzeiten.push({ id: neueId(), ...werte });
+      const ziel = eintrag ?? { id: neueId() };
+      Object.assign(ziel, werte);
+      // "Entschuldigt" im Dialog heisst: bei allen Faechern erledigt.
+      // "Offen" laesst die einzelnen Haken so, wie sie sind.
+      const faecher = faecherVon(ziel);
+      if (faecher.length) {
+        ziel.entschuldigtBei ??= {};
+        if (werte.entschuldigt === 'ja') for (const k of faecher) ziel.entschuldigtBei[k] = true;
+        for (const k of Object.keys(ziel.entschuldigtBei)) if (!faecher.includes(k)) delete ziel.entschuldigtBei[k];
+        ziel.entschuldigt = offeneFaecher(ziel).length ? 'nein' : 'ja';
+      }
+      if (!eintrag) daten.fehlzeiten.push(ziel);
       daten.fehlzeiten.sort((a, b) => b.datum.localeCompare(a.datum));
       await A.speichern();
       A.zeichnen();
@@ -1341,7 +1407,7 @@ export function zeichneMehr(ziel) {
   const daten = A.zustand.meineDaten;
 
   // --- Fehlzeiten ---
-  const offen = daten.fehlzeiten.filter((f) => f.entschuldigt === 'nein').length;
+  const offen = daten.fehlzeiten.filter(istOffen).length;
   ziel.append(ueberschrift('Fehlzeiten', '+ Eintragen', () => fehlzeitBearbeiten()));
 
   const zaehler = document.createElement('div');
@@ -1389,21 +1455,56 @@ export function zeichneMehr(ziel) {
   if (daten.fehlzeiten.length) ziel.append(ueberschrift('Einzelne Einträge'));
 
   for (const f of daten.fehlzeiten.slice(0, 20)) {
-    const el = document.createElement('button');
-    el.type = 'button';
-    el.className = `fehlzeit${f.entschuldigt === 'nein' ? ' offen' : ''}`;
-    const faecher = [...new Set((f.stunden ?? []).map((st) => kursVon(st.kurs)?.fach ?? st.kurs))];
+    const offenHier = istOffen(f);
+    const karte = document.createElement('div');
+    karte.className = `fehlzeit${offenHier ? ' offen' : ''}`;
+
+    const kopf = document.createElement('button');
+    kopf.type = 'button';
+    kopf.className = 'fehlzeit-kopf';
+    const faecher = faecherVon(f);
     const beschreibung = faecher.length
-      ? `${(f.stunden ?? []).length} Std · ${faecher.join(', ')}`
+      ? `${(f.stunden ?? []).length} Std`
       : f.art === 'ganztags'
         ? 'Ganzer Tag'
         : 'Ohne Fachbezug';
-    el.innerHTML =
+    const nochOffen = offeneFaecher(f).length;
+    kopf.innerHTML =
       `<span class="fehlzeit-datum">${datumText(f.datum)}</span>` +
       `<span class="fehlzeit-text">${beschreibung}${f.grund ? ` · ${f.grund}` : ''}</span>` +
-      `<span class="fehlzeit-marke">${f.entschuldigt === 'nein' ? 'offen' : '✓'}</span>`;
-    el.addEventListener('click', () => fehlzeitBearbeiten(f));
-    ziel.append(el);
+      `<span class="fehlzeit-marke">${
+        faecher.length
+          ? nochOffen ? `${nochOffen} offen` : '✓'
+          : offenHier ? 'offen' : '✓'
+      }</span>`;
+    kopf.addEventListener('click', () => fehlzeitBearbeiten(f));
+    karte.append(kopf);
+
+    // Je Fach ein Haken: Bei wem hast du dich schon entschuldigt?
+    if (faecher.length) {
+      const chips = document.createElement('div');
+      chips.className = 'fehlzeit-faecher';
+      for (const kurs of faecher) {
+        const k = kursVon(kurs);
+        const erledigt = istEntschuldigt(f, kurs);
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = `fach-chip${erledigt ? ' erledigt' : ''}`;
+        chip.style.setProperty('--fach-farbe', farbeVon(k?.farbe));
+        chip.innerHTML =
+          `<span class="fach-chip-haken">${erledigt ? '✓' : ''}</span>` +
+          `<span>${k?.fach ?? kurs}</span>`;
+        chip.title = erledigt ? 'Entschuldigt - tippen zum Zurücknehmen' : 'Noch nicht entschuldigt - tippen, wenn erledigt';
+        chip.addEventListener('click', async () => {
+          entschuldigungUmschalten(f, kurs);
+          await A.speichern();
+          A.zeichnen();
+        });
+        chips.append(chip);
+      }
+      karte.append(chips);
+    }
+    ziel.append(karte);
   }
 
   // --- Einstellungen ---

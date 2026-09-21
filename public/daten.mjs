@@ -9,7 +9,7 @@
 // Zusaetzlich haelt diese Datei den Abgleich zwischen mehreren Geraeten:
 // jedes Geraet arbeitet auf seinem eigenen Stand und schiebt ihn
 // verschluesselt in die Cloud; beim Laden werden beide Staende verschmolzen.
-import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=23';
+import { verschluesseln, entschluesseln } from './shared/krypto.mjs?v=24';
 
 const DB_NAME = 'stundenplan';
 const LADEN = 'werte';

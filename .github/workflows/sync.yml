@@ -7,27 +7,29 @@ on:
     # Holt nur die laufende und die naechste Woche - dort passieren
     # Vertretungen. Dadurch belastet der haeufigere Takt den Schulserver
     # weniger als der bisherige 15-Minuten-Takt.
-    - cron: '*/5 4-16 * * 1-5'
+    # Die Minuten liegen bewusst NEBEN dem vollen Fuenf-Minuten-Raster
+    # (2, 7, 12 ... statt 0, 5, 10 ...): Zur vollen Marke stehen bei GitHub
+    # weltweit die meisten Zeitplaene an, und genau dann verwirft der
+    # Scheduler am meisten. Beobachtet: ab Mitte September nur noch 6 statt
+    # 150 Laeufe am Tag. Verlaesslich wird es erst mit dem externen Anstoss
+    # (scripts/anstoss.gs) - der Zeitplan hier bleibt als Rueckfallebene.
+    - cron: '2-59/5 4-16 * * 1-5'
     # Viermal taeglich der vollstaendige Plan (6 Wochen). Was weiter als zwei
-    # Wochen entfernt liegt, aendert sich nicht im Minutentakt. Minute 3
-    # kollidiert bewusst nicht mit dem Fuenf-Minuten-Raster.
-    - cron: '3 4,8,12,16 * * 1-5'
+    # Wochen entfernt liegt, aendert sich nicht im Minutentakt.
+    - cron: '9 4,8,12,16 * * 1-5'
     # Abendvorschau: 19 UTC = 21:00 Sommerzeit / 20:00 Winterzeit,
     # sonntags bis donnerstags (fuer die Schultage Montag bis Freitag).
-    - cron: '0 19 * * 0-4'
-    # Morgenueberblick: 4:32 UTC = 6:32 Sommerzeit / 5:32 Winterzeit.
-    # Minute 32 statt 30, weil 30 auf dem Fuenf-Minuten-Raster liegt und
-    # GitHub sonst zwei Laeufe gleichzeitig startet.
-    - cron: '32 4 * * 1-5'
-    # Hausaufgaben-Erinnerung am Vortag: 13:41 UTC = 15:41 Sommerzeit.
-    # Minute 41 statt 40 - siehe Begruendung beim Morgenueberblick.
-    - cron: '41 13 * * 0-4'
-  workflow_dispatch: # erlaubt den Start von Hand
+    - cron: '3 19 * * 0-4'
+    # Morgenueberblick: 4:33 UTC = 6:33 Sommerzeit / 5:33 Winterzeit.
+    - cron: '33 4 * * 1-5'
+    # Hausaufgaben-Erinnerung am Vortag: 13:43 UTC = 15:43 Sommerzeit.
+    - cron: '43 13 * * 0-4'
+  workflow_dispatch: # Start von Hand oder durch den externen Anstoss
     inputs:
-      modus:
-        description: 'voll = sechs Wochen, schnell = nur laufende und naechste Woche'
+      aufgabe:
+        description: 'schnell = zwei Wochen, voll = sechs Wochen; morgen/abend/aufgaben = voller Lauf plus Tagesmeldung'
         type: choice
-        options: [voll, schnell]
+        options: [schnell, voll, morgen, abend, aufgaben]
         default: voll
 
 # Zwei gleichzeitige Laeufe wuerden sich gegenseitig ueberschreiben.
@@ -75,17 +77,26 @@ jobs:
           # Ueber die Umgebung statt direkt in die Shell eingesetzt - so kann
           # der Wert die Befehlszeile nicht zerbrechen.
           ZEITPLAN: ${{ github.event.schedule }}
-          VONHAND: ${{ inputs.modus }}
+          AUFGABE: ${{ inputs.aufgabe }}
         run: |
-          if [ -n "$VONHAND" ]; then
-            MODUS="$VONHAND"           # Start von Hand: Betriebsart frei waehlbar
-          elif [ "$ZEITPLAN" = "*/5 4-16 * * 1-5" ]; then
-            MODUS=schnell
-          else
-            MODUS=voll
-          fi
+          MELDUNG=keine
+          case "$AUFGABE" in
+            schnell) MODUS=schnell ;;
+            voll)    MODUS=voll ;;
+            morgen|abend|aufgaben) MODUS=voll; MELDUNG="$AUFGABE" ;;
+            *)
+              # Kein Handstart: die Aufgabe ergibt sich aus dem Zeitplan.
+              case "$ZEITPLAN" in
+                "2-59/5 4-16 * * 1-5") MODUS=schnell ;;
+                "33 4 * * 1-5")        MODUS=voll; MELDUNG=morgen ;;
+                "3 19 * * 0-4")        MODUS=voll; MELDUNG=abend ;;
+                "43 13 * * 0-4")       MODUS=voll; MELDUNG=aufgaben ;;
+                *)                     MODUS=voll ;;
+              esac ;;
+          esac
           echo "modus=$MODUS" >> "$GITHUB_OUTPUT"
-          echo "Betriebsart: $MODUS"
+          echo "meldung=$MELDUNG" >> "$GITHUB_OUTPUT"
+          echo "Betriebsart: $MODUS, Meldung: $MELDUNG"
 
       - name: Plan holen, filtern und verschluesseln
         env:
@@ -113,40 +124,67 @@ jobs:
           VAPID_KONTAKT: https://stundenplan-jasper.web.app
           PUSH_SUBSCRIPTION: ${{ secrets.PUSH_SUBSCRIPTION }}
           PUSH_SUBSCRIPTION_CATALINA: ${{ secrets.PUSH_SUBSCRIPTION_CATALINA }}
+          APP_CODE: ${{ secrets.APP_CODE }}
+          APP_CODE_CATALINA: ${{ secrets.APP_CODE_CATALINA }}
           KNAPP: '1'
         run: npm run push
 
-      - name: Abendvorschau fuer morgen
-        # Laeuft nur beim Abend-Zeitplan, nicht alle 15 Minuten.
-        if: github.event.schedule == '0 19 * * 0-4'
+      # Kurz vor einer Stunde, bei der noch eine Entschuldigung offen ist.
+      # Liest die verschluesselte Sicherung der Person - der Server selbst
+      # kennt die Fehlzeiten sonst nicht.
+      - name: Erinnerung vor der Stunde
         env:
           VAPID_PUBLIC: ${{ secrets.VAPID_PUBLIC }}
           VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
           VAPID_KONTAKT: https://stundenplan-jasper.web.app
           PUSH_SUBSCRIPTION: ${{ secrets.PUSH_SUBSCRIPTION }}
           PUSH_SUBSCRIPTION_CATALINA: ${{ secrets.PUSH_SUBSCRIPTION_CATALINA }}
+          APP_CODE: ${{ secrets.APP_CODE }}
+          APP_CODE_CATALINA: ${{ secrets.APP_CODE_CATALINA }}
+          BASIS_DIR: basis-stand
+          KNAPP: '1'
+        run: npm run erinnerungen
+
+      - name: Abendvorschau fuer morgen
+        # Laeuft nur, wenn die Aufgabe es verlangt - nicht alle fuenf Minuten.
+        if: steps.art.outputs.meldung == 'abend'
+        env:
+          VAPID_PUBLIC: ${{ secrets.VAPID_PUBLIC }}
+          VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
+          VAPID_KONTAKT: https://stundenplan-jasper.web.app
+          PUSH_SUBSCRIPTION: ${{ secrets.PUSH_SUBSCRIPTION }}
+          PUSH_SUBSCRIPTION_CATALINA: ${{ secrets.PUSH_SUBSCRIPTION_CATALINA }}
+          APP_CODE: ${{ secrets.APP_CODE }}
+          APP_CODE_CATALINA: ${{ secrets.APP_CODE_CATALINA }}
+          BASIS_DIR: basis-stand
           KNAPP: '1'
         run: npm run abend
 
       - name: Morgenueberblick fuer heute
-        if: github.event.schedule == '32 4 * * 1-5'
+        if: steps.art.outputs.meldung == 'morgen'
         env:
           VAPID_PUBLIC: ${{ secrets.VAPID_PUBLIC }}
           VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
           VAPID_KONTAKT: https://stundenplan-jasper.web.app
           PUSH_SUBSCRIPTION: ${{ secrets.PUSH_SUBSCRIPTION }}
           PUSH_SUBSCRIPTION_CATALINA: ${{ secrets.PUSH_SUBSCRIPTION_CATALINA }}
+          APP_CODE: ${{ secrets.APP_CODE }}
+          APP_CODE_CATALINA: ${{ secrets.APP_CODE_CATALINA }}
+          BASIS_DIR: basis-stand
           KNAPP: '1'
         run: npm run morgen
 
       - name: Hausaufgaben-Erinnerung fuer morgen
-        if: github.event.schedule == '41 13 * * 0-4'
+        if: steps.art.outputs.meldung == 'aufgaben'
         env:
           VAPID_PUBLIC: ${{ secrets.VAPID_PUBLIC }}
           VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
           VAPID_KONTAKT: https://stundenplan-jasper.web.app
           PUSH_SUBSCRIPTION: ${{ secrets.PUSH_SUBSCRIPTION }}
           PUSH_SUBSCRIPTION_CATALINA: ${{ secrets.PUSH_SUBSCRIPTION_CATALINA }}
+          APP_CODE: ${{ secrets.APP_CODE }}
+          APP_CODE_CATALINA: ${{ secrets.APP_CODE_CATALINA }}
+          BASIS_DIR: basis-stand
           KNAPP: '1'
         run: npm run aufgaben
 
@@ -162,6 +200,9 @@ jobs:
           # force-push auf der Strecke und ihre App stuende ohne Plan da.
           cp basis-stand/*.enc.json out/ 2>/dev/null || true
           cp public/data/plan*.enc.json out/
+          # Vermerke, was schon verschickt wurde (nur Datumsangaben bzw. Hashes).
+          cp basis-stand/meldungen.json basis-stand/erinnerungen.json out/ 2>/dev/null || true
+          cp public/data/meldungen.json public/data/erinnerungen.json out/ 2>/dev/null || true
           cd out
           git init -q -b data
           git config user.name "stundenplan-bot"

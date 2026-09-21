@@ -2,18 +2,18 @@
 // reichert Push-Nachrichten um die eigenen Hausaufgaben an.
 // WICHTIG: Bei jedem App-Update die Versionsnummer hier UND die ?v=-Anhaenge
 // in index.html/app.js gemeinsam hochzaehlen.
-const CACHE = 'stundenplan-v23';
+const CACHE = 'stundenplan-v24';
 const HUELLE = [
   './',
   './index.html',
-  './styles.css?v=23',
-  './app.js?v=23',
-  './bereiche.mjs?v=23',
-  './daten.mjs?v=23',
-  './symbole.mjs?v=23',
-  './shared/konfiguration.mjs?v=23',
-  './shared/klausurplan.mjs?v=23',
-  './shared/krypto.mjs?v=23',
+  './styles.css?v=24',
+  './app.js?v=24',
+  './bereiche.mjs?v=24',
+  './daten.mjs?v=24',
+  './symbole.mjs?v=24',
+  './shared/konfiguration.mjs?v=24',
+  './shared/klausurplan.mjs?v=24',
+  './shared/krypto.mjs?v=24',
   './manifest.webmanifest',
   './icons/icon-180.png',
   './icons/icon-192.png',
@@ -54,6 +54,9 @@ const FAECHER = {
   PO1: 'Politik',
   wn1: 'Werte und Normen',
   snN1: 'Spanisch',
+  // Sport (seit 21.09.2026)
+  'sp1-3': 'Sport',
+  'sp1-1': 'Sport',
 };
 
 const b64aus = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));

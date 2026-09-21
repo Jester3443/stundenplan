@@ -18,7 +18,8 @@
     "dump": "node scripts/dump-my.mjs 6",
     "abend": "node scripts/vorschau.mjs abend",
     "morgen": "node scripts/vorschau.mjs morgen",
-    "aufgaben": "node scripts/vorschau.mjs aufgaben"
+    "aufgaben": "node scripts/vorschau.mjs aufgaben",
+    "erinnerungen": "node scripts/erinnerungen.mjs"
   },
   "dependencies": {
     "dotenv": "^17.2.3",

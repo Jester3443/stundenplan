@@ -48,6 +48,8 @@ export const BENUTZER = {
       { kuerzel: 'GE1', lehrer: 'MEIR', fach: 'Geschichte',  niveau: 'eA', farbe: 'orange' },
       { kuerzel: 'EK1', lehrer: 'lep', fach: 'Erdkunde',     niveau: 'eA', farbe: 'braun' },
       { kuerzel: 'sf3', lehrer: 'eik', fach: 'Seminarfach',  niveau: '',   farbe: 'grau' },
+      // Sport ab 21.09.2026: dienstags 9./10. Stunde in der Sporthalle 2.
+      { kuerzel: 'sp1-3', lehrer: 'sei', fach: 'Sport',       niveau: '',   farbe: 'mint' },
     ],
   },
 
@@ -68,6 +70,9 @@ export const BENUTZER = {
       { kuerzel: 'snN1', lehrer: 'rio', fach: 'Spanisch',        niveau: 'gA', farbe: 'gelb' },
       // Bestaetigt: gleiches Seminarfach wie Jasper, bei Herrn Eikhorst.
       { kuerzel: 'sf3', lehrer: 'eik', fach: 'Seminarfach',      niveau: '',   farbe: 'grau' },
+      // Sport ab 21.09.2026: dienstags 9./10. Stunde, gleiche Zeit wie Jasper,
+      // aber anderer Kurs in der Sporthalle 1.
+      { kuerzel: 'sp1-1', lehrer: 'klü', fach: 'Sport',            niveau: '',   farbe: 'mint' },
     ],
   },
 };
@@ -128,6 +133,7 @@ export const FARBEN = {
   orange:   { hell: '#F08000', dunkel: '#FF9F0A' },
   braun:    { hell: '#A2845E', dunkel: '#AC8E68' },
   gelb:     { hell: '#C79100', dunkel: '#FFD426' },
+  mint:     { hell: '#00A39B', dunkel: '#63E6E2' },
   grau:     { hell: '#8E8E93', dunkel: '#98989D' },
 };
 

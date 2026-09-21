@@ -6,8 +6,8 @@ import {
   DATEN_URL,
   BENUTZER,
   setzeBenutzer,
-} from './shared/konfiguration.mjs?v=23';
-import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=23';
+} from './shared/konfiguration.mjs?v=24';
+import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=24';
 import {
   schluesselSichern,
   schluesselLaden,
@@ -21,8 +21,8 @@ import {
   verschmelze,
   pushAnmeldungHinterlegen,
   LEER,
-} from './daten.mjs?v=23';
-import { symbolFuer } from './symbole.mjs?v=23';
+} from './daten.mjs?v=24';
+import { symbolFuer } from './symbole.mjs?v=24';
 import {
   initBereiche,
   zeichneAufgaben,
@@ -38,10 +38,11 @@ import {
   uebernehmeKlausurplan,
   noteFuerStunde,
   noteZurStunde,
-} from './bereiche.mjs?v=23';
+  entschuldigungenAm,
+} from './bereiche.mjs?v=24';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 23;
+const APP_VERSION = 24;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -616,6 +617,15 @@ function zeichneTag(ziel) {
 
   const tag = tagFinden(zustand.gewaehlt);
   const istHeute = iso(new Date()) === zustand.gewaehlt;
+
+  // Bei wem ist an diesem Tag noch eine Entschuldigung abzugeben?
+  const faellig = zustand.gewaehlt >= iso(new Date()) ? entschuldigungenAm(zustand.gewaehlt) : [];
+  if (faellig.length) {
+    const d = alsDatum(zustand.gewaehlt);
+    const abstand = Math.round((d - alsDatum(iso(new Date()))) / 864e5);
+    const wann = abstand === 0 ? 'Heute' : abstand === 1 ? 'Morgen' : `Am ${TAGE_KURZ[d.getDay()]}, ${d.getDate()}.${d.getMonth() + 1}.`;
+    ziel.append(entschuldigungsBanner(faellig, wann));
+  }
   const jetzt = new Date();
   const jetztMin = jetzt.getHours() * 60 + jetzt.getMinutes();
 
@@ -717,6 +727,21 @@ function offeneAenderungen() {
     offen.push(a);
   }
   return offen;
+}
+
+/** "Heute noch entschuldigen bei ..." - ein Tipp fuehrt zu den Fehlzeiten. */
+function entschuldigungsBanner(stunden, wann) {
+  const el = document.createElement('button');
+  el.type = 'button';
+  el.className = 'banner entschuldigung';
+  const liste = stunden
+    .map((s) => `<li>${s.fachName}${s.block ? ` · ${s.block}` : ''}${s.lehrerLang || s.lehrer ? ` · ${s.lehrerLang || s.lehrer}` : ''}</li>`)
+    .join('');
+  el.innerHTML =
+    `<div class="banner-titel">${wann} noch entschuldigen</div>` +
+    `<ul class="banner-liste">${liste}</ul>`;
+  el.addEventListener('click', () => setzeTab('mehr'));
+  return el;
 }
 
 function banner(aenderungen) {

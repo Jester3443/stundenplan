@@ -10,6 +10,8 @@ import 'dotenv/config';
 import webpush from 'web-push';
 import { BENUTZER } from '../public/shared/konfiguration.mjs';
 import { anmeldungenFuer } from './push-ziele.mjs';
+import { eigeneDatenFuer, erinnerungenFuer } from './eigene-daten.mjs';
+import { writeFile, mkdir } from 'node:fs/promises';
 
 const ERLAUBT = ['abend', 'morgen', 'aufgaben'];
 const ART = ERLAUBT.includes(process.argv[2]) ? process.argv[2] : 'abend';
@@ -37,6 +39,30 @@ function inBerlin(versatzTage = 0) {
 const zieldatum = ART === 'morgen' ? inBerlin(0) : inBerlin(1); // 'aufgaben' blickt wie 'abend' auf morgen
 
 webpush.setVapidDetails(KONTAKT, OEFFENTLICH, PRIVAT);
+
+// Jede Tagesmeldung hoechstens EINMAL am Tag. Der Lauf kann inzwischen von
+// zwei Seiten angestossen werden (GitHub-Zeitplan und externer Anstoss) -
+// ohne diesen Vermerk kaeme die Morgenmeldung doppelt.
+const basisDir = (process.env.BASIS_DIR ?? '').trim();
+let meldungen = {};
+for (const pfad of [basisDir && `${basisDir}/meldungen.json`, 'public/data/meldungen.json'].filter(Boolean)) {
+  try {
+    meldungen = JSON.parse(await readFile(pfad, 'utf8'));
+    break;
+  } catch {
+    /* noch nichts vermerkt */
+  }
+}
+const heuteBerlin = inBerlin(0);
+const vermerkeMeldung = async () => {
+  meldungen[ART] = heuteBerlin;
+  await mkdir('public/data', { recursive: true });
+  await writeFile('public/data/meldungen.json', JSON.stringify(meldungen), 'utf8');
+};
+if (meldungen[ART] === heuteBerlin) {
+  console.log(`${ART}: heute schon verschickt - kein zweites Mal.`);
+  process.exit(0);
+}
 
 let gesamtVerschickt = 0;
 
@@ -116,6 +142,16 @@ for (const kennung of Object.keys(BENUTZER)) {
   for (const s of entfallen) zeilen.push(`${s.block} ${s.fachName} entfällt`);
   for (const h of hausaufgaben.slice(0, 3)) zeilen.push(`Hausaufgabe ${h.fach}: ${h.text}`);
 
+  // Morgens dazu: bei wem heute noch eine Entschuldigung abzugeben ist.
+  if (ART === 'morgen') {
+    const daten = await eigeneDatenFuer(kennung);
+    const offen = erinnerungenFuer(plan, daten, zieldatum);
+    if (offen.length) {
+      zeilen.push(`Noch entschuldigen: ${offen.map((e) => `${e.fach}${e.block ? ` (${e.block})` : ''}`).join(', ')}`);
+      titel ??= offen.length === 1 ? 'Heute eine Entschuldigung abgeben' : `Heute ${offen.length} Entschuldigungen abgeben`;
+    }
+  }
+
   // Abends nur melden, wenn es wirklich etwas zu sagen gibt.
   if (!titel && !hausaufgaben.length) continue;
   titel ??= hausaufgaben.length === 1 ? 'Eine Hausaufgabe für morgen' : `${hausaufgaben.length} Hausaufgaben für morgen`;
@@ -141,4 +177,5 @@ for (const kennung of Object.keys(BENUTZER)) {
   console.log(process.env.KNAPP ? `${kennung}: gesendet.` : `${kennung}: "${titel}"`);
 }
 
-if (!gesamtVerschickt) console.log(`${ART}: nichts zu melden.`);
+if (gesamtVerschickt) await vermerkeMeldung();
+else console.log(`${ART}: nichts zu melden.`);

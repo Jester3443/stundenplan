@@ -44,12 +44,13 @@ console.log('\n--- Zuordnung zu den Kursen ---');
   pruefe('Jasper bekommt Klausuren', jasper.length > 0, `${jasper.length} Termine`);
   pruefe('Catalina bekommt Klausuren', catalina.length > 0, `${catalina.length} Termine`);
 
-  // Jeder Kurs ausser dem Seminarfach schreibt Klausuren.
+  // Jeder Kurs ausser Seminarfach und Sport schreibt Klausuren.
+  const OHNE_KLAUSUR = ['Seminarfach', 'Sport'];
   for (const [kennung, person] of Object.entries(BENUTZER)) {
     const treffer = klausurenFuer(person.kurse);
     const ohne = person.kurse.filter((k) => !treffer.some((t) => t.kurs === k.kuerzel));
-    pruefe(`${person.name}: nur das Seminarfach ohne Klausur`,
-      ohne.length === 1 && ohne[0].kuerzel === 'sf3',
+    pruefe(`${person.name}: nur Seminarfach und Sport ohne Klausur`,
+      ohne.length === OHNE_KLAUSUR.length && ohne.every((k) => OHNE_KLAUSUR.includes(k.fach)),
       ohne.map((k) => k.kuerzel).join(', ') || 'keiner');
 
     const doppelt = treffer.filter((t, i, a) => a.findIndex((x) => x.kurs === t.kurs && x.datum === t.datum) !== i);
