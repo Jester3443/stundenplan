@@ -1,10 +1,10 @@
 // Die drei Bereiche neben dem Stundenplan: Aufgaben, Noten, Mehr.
 // Bekommt beim Start alles Noetige von app.js uebergeben - so gibt es
 // keine gegenseitigen Importe zwischen den Dateien.
-import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=24';
-import { symbolFuer } from './symbole.mjs?v=24';
-import { neueId, istGeloescht } from './daten.mjs?v=24';
-import { klausurenFuer, HALBJAHRE, aktuellesHalbjahr } from './shared/klausurplan.mjs?v=24';
+import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=25';
+import { symbolFuer } from './symbole.mjs?v=25';
+import { neueId, istGeloescht } from './daten.mjs?v=25';
+import { klausurenFuer, HALBJAHRE, aktuellesHalbjahr } from './shared/klausurplan.mjs?v=25';
 
 let A = null; // die von app.js gereichten Hilfsmittel
 export function initBereiche(api) {
@@ -37,6 +37,8 @@ const LERNPLAN_AB_TAGEN = 14;
 const KLAUSUREN_KURZ = 4;
 /** Sind gerade alle Klausurtermine aufgeklappt? */
 let alleKlausurenZeigen = false;
+/** Bei welchen Fehltagen sind die schon erledigten Faecher eingeblendet? */
+const erledigteGezeigt = new Set();
 
 const restText = (abstand) =>
   abstand === 0 ? 'heute' : abstand === 1 ? 'morgen' : abstand < 0 ? `vor ${-abstand} Tagen` : `in ${abstand} Tagen`;
@@ -1452,9 +1454,8 @@ export function zeichneMehr(ziel) {
     ziel.append(erklaerung);
   }
 
-  if (daten.fehlzeiten.length) ziel.append(ueberschrift('Einzelne Einträge'));
-
-  for (const f of daten.fehlzeiten.slice(0, 20)) {
+  /** Eine Fehltag-Karte mit den Faechern, bei denen noch etwas offen ist. */
+  const fehlzeitKarte = (f) => {
     const offenHier = istOffen(f);
     const karte = document.createElement('div');
     karte.className = `fehlzeit${offenHier ? ' offen' : ''}`;
@@ -1468,43 +1469,96 @@ export function zeichneMehr(ziel) {
       : f.art === 'ganztags'
         ? 'Ganzer Tag'
         : 'Ohne Fachbezug';
-    const nochOffen = offeneFaecher(f).length;
+    const offeneListe = offeneFaecher(f);
     kopf.innerHTML =
       `<span class="fehlzeit-datum">${datumText(f.datum)}</span>` +
       `<span class="fehlzeit-text">${beschreibung}${f.grund ? ` · ${f.grund}` : ''}</span>` +
       `<span class="fehlzeit-marke">${
         faecher.length
-          ? nochOffen ? `${nochOffen} offen` : '✓'
+          ? offeneListe.length ? `${offeneListe.length} offen` : '✓'
           : offenHier ? 'offen' : '✓'
       }</span>`;
     kopf.addEventListener('click', () => fehlzeitBearbeiten(f));
     karte.append(kopf);
 
-    // Je Fach ein Haken: Bei wem hast du dich schon entschuldigt?
-    if (faecher.length) {
-      const chips = document.createElement('div');
-      chips.className = 'fehlzeit-faecher';
-      for (const kurs of faecher) {
-        const k = kursVon(kurs);
-        const erledigt = istEntschuldigt(f, kurs);
-        const chip = document.createElement('button');
-        chip.type = 'button';
-        chip.className = `fach-chip${erledigt ? ' erledigt' : ''}`;
-        chip.style.setProperty('--fach-farbe', farbeVon(k?.farbe));
-        chip.innerHTML =
-          `<span class="fach-chip-haken">${erledigt ? '✓' : ''}</span>` +
-          `<span>${k?.fach ?? kurs}</span>`;
-        chip.title = erledigt ? 'Entschuldigt - tippen zum Zurücknehmen' : 'Noch nicht entschuldigt - tippen, wenn erledigt';
-        chip.addEventListener('click', async () => {
-          entschuldigungUmschalten(f, kurs);
-          await A.speichern();
-          A.zeichnen();
-        });
-        chips.append(chip);
-      }
-      karte.append(chips);
+    if (!faecher.length) return karte;
+
+    const erledigteListe = faecher.filter((kurs) => istEntschuldigt(f, kurs));
+    const zeigeErledigte = erledigteGezeigt.has(f.id);
+
+    /** Ein Fach zum Antippen. Erledigte sehen blass aus und sind durchgestrichen. */
+    const chipFuer = (kurs, erledigt) => {
+      const k = kursVon(kurs);
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = `fach-chip${erledigt ? ' erledigt' : ''}`;
+      chip.style.setProperty('--fach-farbe', farbeVon(k?.farbe));
+      chip.innerHTML =
+        `<span class="fach-chip-haken">${erledigt ? '✓' : ''}</span>` +
+        `<span>${k?.fach ?? kurs}</span>`;
+      chip.title = erledigt
+        ? 'Schon entschuldigt – tippen, um es zurückzunehmen'
+        : 'Noch nicht entschuldigt – tippen, wenn erledigt';
+      chip.addEventListener('click', async () => {
+        entschuldigungUmschalten(f, kurs);
+        // Nimmt man etwas zurück, soll die Liste nicht zuklappen.
+        if (erledigt) erledigteGezeigt.add(f.id);
+        await A.speichern();
+        A.zeichnen();
+      });
+      return chip;
+    };
+
+    // Nur was noch offen ist, steht in der Reihe - das ist der Arbeitsvorrat.
+    const chips = document.createElement('div');
+    chips.className = 'fehlzeit-faecher';
+    for (const kurs of offeneListe) chips.append(chipFuer(kurs, false));
+
+    // Erledigtes verschwindet, bleibt aber über die drei Punkte erreichbar.
+    if (erledigteListe.length) {
+      const mehr = document.createElement('button');
+      mehr.type = 'button';
+      mehr.className = `fach-mehr${zeigeErledigte ? ' aktiv' : ''}`;
+      mehr.setAttribute(
+        'aria-label',
+        zeigeErledigte ? 'Erledigte Fächer ausblenden' : `${erledigteListe.length} erledigte Fächer zeigen`
+      );
+      mehr.textContent = zeigeErledigte ? '×' : '⋯';
+      mehr.addEventListener('click', () => {
+        if (zeigeErledigte) erledigteGezeigt.delete(f.id);
+        else erledigteGezeigt.add(f.id);
+        A.zeichnen();
+      });
+      chips.append(mehr);
     }
-    ziel.append(karte);
+    if (chips.children.length) karte.append(chips);
+
+    if (erledigteListe.length && zeigeErledigte) {
+      const fertig = document.createElement('div');
+      fertig.className = 'fehlzeit-faecher erledigt-reihe';
+      const marke = document.createElement('span');
+      marke.className = 'erledigt-marke';
+      marke.textContent = 'Schon entschuldigt:';
+      fertig.append(marke);
+      for (const kurs of erledigteListe) fertig.append(chipFuer(kurs, true));
+      karte.append(fertig);
+    }
+    return karte;
+  };
+
+  // Offene Fehltage zuerst - das ist die Arbeitsliste. Erledigtes rutscht
+  // darunter, innerhalb der Gruppen bleibt es nach Datum sortiert.
+  const nachDatum = (a, b) => b.datum.localeCompare(a.datum);
+  const offeneTage = daten.fehlzeiten.filter(istOffen).sort(nachDatum);
+  const fertigeTage = daten.fehlzeiten.filter((f) => !istOffen(f)).sort(nachDatum);
+
+  if (offeneTage.length) {
+    ziel.append(ueberschrift(offeneTage.length === 1 ? 'Noch zu entschuldigen' : `Noch zu entschuldigen · ${offeneTage.length}`));
+    for (const f of offeneTage) ziel.append(fehlzeitKarte(f));
+  }
+  if (fertigeTage.length) {
+    ziel.append(ueberschrift('Erledigt'));
+    for (const f of fertigeTage.slice(0, 20)) ziel.append(fehlzeitKarte(f));
   }
 
   // --- Einstellungen ---

@@ -2,18 +2,18 @@
 // reichert Push-Nachrichten um die eigenen Hausaufgaben an.
 // WICHTIG: Bei jedem App-Update die Versionsnummer hier UND die ?v=-Anhaenge
 // in index.html/app.js gemeinsam hochzaehlen.
-const CACHE = 'stundenplan-v24';
+const CACHE = 'stundenplan-v25';
 const HUELLE = [
   './',
   './index.html',
-  './styles.css?v=24',
-  './app.js?v=24',
-  './bereiche.mjs?v=24',
-  './daten.mjs?v=24',
-  './symbole.mjs?v=24',
-  './shared/konfiguration.mjs?v=24',
-  './shared/klausurplan.mjs?v=24',
-  './shared/krypto.mjs?v=24',
+  './styles.css?v=25',
+  './app.js?v=25',
+  './bereiche.mjs?v=25',
+  './daten.mjs?v=25',
+  './symbole.mjs?v=25',
+  './shared/konfiguration.mjs?v=25',
+  './shared/klausurplan.mjs?v=25',
+  './shared/krypto.mjs?v=25',
   './manifest.webmanifest',
   './icons/icon-180.png',
   './icons/icon-192.png',

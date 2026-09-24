@@ -1342,7 +1342,11 @@ body {
   background: transparent;
   box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--fach-farbe, var(--fl-grau)) 70%, transparent);
 }
-.fach-chip.erledigt { background: color-mix(in srgb, var(--fach-farbe, var(--fl-grau)) 28%, var(--flaeche)); }
+.fach-chip.erledigt {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--fach-farbe, var(--fl-grau)) 30%, transparent);
+  color: var(--text-leise);
+}
 .fach-chip.erledigt .fach-chip-haken { background: var(--fach-farbe, var(--fl-grau)); box-shadow: none; }
 .fach-chip.erledigt span:last-child { text-decoration: line-through; opacity: 0.7; }
 
@@ -1706,3 +1710,33 @@ body {
 /* Hinweis auf offene Entschuldigungen am Tag */
 .banner.entschuldigung { background: color-mix(in srgb, var(--fl-rot) 16%, var(--flaeche)); }
 .banner.entschuldigung .banner-titel::before { background: var(--fl-rot); }
+
+/* Erledigte Faecher verschwinden aus der Reihe - die drei Punkte holen sie zurueck */
+.fach-mehr {
+  appearance: none; border: none; font: inherit;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--flaeche-hoch);
+  color: var(--text-leise);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+.fach-mehr:active { opacity: 0.6; }
+.fach-mehr.aktiv { background: var(--flaeche-hoch); color: var(--text); }
+
+.erledigt-reihe {
+  padding-top: 0;
+  align-items: center;
+}
+.erledigt-marke {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-sehr-leise);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-right: 2px;
+}
