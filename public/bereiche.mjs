@@ -1,10 +1,10 @@
 // Die drei Bereiche neben dem Stundenplan: Aufgaben, Noten, Mehr.
 // Bekommt beim Start alles Noetige von app.js uebergeben - so gibt es
 // keine gegenseitigen Importe zwischen den Dateien.
-import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=25';
-import { symbolFuer } from './symbole.mjs?v=25';
-import { neueId, istGeloescht } from './daten.mjs?v=25';
-import { klausurenFuer, HALBJAHRE, aktuellesHalbjahr } from './shared/klausurplan.mjs?v=25';
+import { KURSE, wochentyp } from './shared/konfiguration.mjs?v=26';
+import { symbolFuer } from './symbole.mjs?v=26';
+import { neueId, istGeloescht } from './daten.mjs?v=26';
+import { klausurenFuer, HALBJAHRE, aktuellesHalbjahr } from './shared/klausurplan.mjs?v=26';
 
 let A = null; // die von app.js gereichten Hilfsmittel
 export function initBereiche(api) {
@@ -1404,6 +1404,28 @@ function fehlzeitBearbeiten(eintrag = null) {
   });
 }
 
+/**
+ * Das Fach, in dem er gerade sitzt - fuer die Fehlzeiten-Ansicht.
+ *
+ * Gleiche Logik wie der Live-Timer im Plan: erst die laufende Stunde; in den
+ * letzten 30 Minuten davor schon die naechste, damit man in der Pause vor dem
+ * Block nachsehen kann, was man mitnehmen muss. Ausserhalb der Schulzeit null.
+ */
+function laufenderKurs() {
+  const tag = A.alleTage().find((x) => x.datum === heute());
+  if (!tag) return null;
+  const n = new Date();
+  const jetztMin = n.getHours() * 60 + n.getMinutes();
+  const stunden = (tag.stunden ?? []).filter((s) => s.kurs && s.status !== 'CANCELLED');
+  const laufend = stunden.find((s) => jetztMin >= A.minuten(s.von) && jetztMin < A.minuten(s.bis));
+  if (laufend) return laufend.kurs;
+  const gleich = stunden.find((s) => {
+    const bis = A.minuten(s.von) - jetztMin;
+    return bis > 0 && bis <= 30;
+  });
+  return gleich?.kurs ?? null;
+}
+
 export function zeichneMehr(ziel) {
   ziel.textContent = '';
   const daten = A.zustand.meineDaten;
@@ -1418,6 +1440,10 @@ export function zeichneMehr(ziel) {
     `<div class="zaehler"><span class="zaehler-zahl">${daten.fehlzeiten.length}</span><span class="zaehler-text">Fehltage</span></div>` +
     `<div class="zaehler${offen ? ' warnung' : ''}"><span class="zaehler-zahl">${offen}</span><span class="zaehler-text">nicht entschuldigt</span></div>`;
   ziel.append(zaehler);
+
+  // Platzhalter: wird unten gefuellt, sobald fehlzeitKarte() bekannt ist.
+  const jetztBlock = document.createElement('div');
+  ziel.append(jetztBlock);
 
   // --- Auswertung je Fach ---
   const auswertung = fehlAuswertung();
@@ -1549,6 +1575,24 @@ export function zeichneMehr(ziel) {
   // Offene Fehltage zuerst - das ist die Arbeitsliste. Erledigtes rutscht
   // darunter, innerhalb der Gruppen bleibt es nach Datum sortiert.
   const nachDatum = (a, b) => b.datum.localeCompare(a.datum);
+
+  // Was gerade dran ist, zuerst: so sieht er im Unterricht sofort, welche
+  // Tage er bei genau dieser Lehrkraft noch abgeben muss.
+  const jetztKurs = laufenderKurs();
+  if (jetztKurs) {
+    const offenHier = daten.fehlzeiten.filter((f) => offeneFaecher(f).includes(jetztKurs)).sort(nachDatum);
+    if (offenHier.length) {
+      const name = kursVon(jetztKurs)?.fach ?? jetztKurs;
+      jetztBlock.append(ueberschrift(`Jetzt: ${name} \u00b7 ${offenHier.length} offen`));
+      const hinweis = document.createElement('p');
+      hinweis.className = 'jetzt-hinweis';
+      hinweis.textContent =
+        `Diese Tage sind in ${name} noch offen. Tippe das Fach auf der Karte an, sobald du die Entschuldigung abgegeben hast.`;
+      jetztBlock.append(hinweis);
+      for (const f of offenHier) jetztBlock.append(fehlzeitKarte(f));
+    }
+  }
+
   const offeneTage = daten.fehlzeiten.filter(istOffen).sort(nachDatum);
   const fertigeTage = daten.fehlzeiten.filter((f) => !istOffen(f)).sort(nachDatum);
 
