@@ -6,8 +6,8 @@ import {
   DATEN_URL,
   BENUTZER,
   setzeBenutzer,
-} from './shared/konfiguration.mjs?v=26';
-import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=26';
+} from './shared/konfiguration.mjs?v=27';
+import { schluesselAusCode, entschluesseln, b64 } from './shared/krypto.mjs?v=27';
 import {
   schluesselSichern,
   schluesselLaden,
@@ -21,8 +21,8 @@ import {
   verschmelze,
   pushAnmeldungHinterlegen,
   LEER,
-} from './daten.mjs?v=26';
-import { symbolFuer } from './symbole.mjs?v=26';
+} from './daten.mjs?v=27';
+import { symbolFuer } from './symbole.mjs?v=27';
 import {
   initBereiche,
   zeichneAufgaben,
@@ -39,10 +39,10 @@ import {
   noteFuerStunde,
   noteZurStunde,
   entschuldigungenAm,
-} from './bereiche.mjs?v=26';
+} from './bereiche.mjs?v=27';
 
 /** Sichtbare Versionsnummer - bei jedem Update zusammen mit ?v= hochzaehlen. */
-const APP_VERSION = 26;
+const APP_VERSION = 27;
 
 const $ = (id) => document.getElementById(id);
 const TAGE_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -1130,7 +1130,16 @@ async function pushStandPruefen() {
       navigator.serviceWorker.ready,
       new Promise((fertig) => setTimeout(() => fertig(null), 1500)),
     ]);
-    const anmeldung = await reg?.pushManager?.getSubscription().catch(() => null);
+    let anmeldung = await reg?.pushManager?.getSubscription().catch(() => null);
+    // iOS kann eine Anmeldung ohne jede Rueckmeldung entfernen. Steht die
+    // Erlaubnis noch, meldet sich die App gleich selbst neu an - das geht
+    // ohne Fingertipp. Vorher blieb das Geraet stumm, bis jemand unter
+    // "Mehr" nachsah und die Mitteilungen von Hand neu einrichtete.
+    if (!anmeldung && reg?.pushManager && Notification.permission === 'granted') {
+      anmeldung = await reg.pushManager
+        .subscribe({ userVisibleOnly: true, applicationServerKey: vapidBytes(VAPID_OEFFENTLICH) })
+        .catch(() => null);
+    }
     pushAn = !!anmeldung;
     // Bei jedem Start nachtragen: Apple vergibt nach einer Neuinstallation
     // eine neue Adresse, und ohne das kämen still keine Mitteilungen mehr an.

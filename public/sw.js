@@ -2,18 +2,18 @@
 // reichert Push-Nachrichten um die eigenen Hausaufgaben an.
 // WICHTIG: Bei jedem App-Update die Versionsnummer hier UND die ?v=-Anhaenge
 // in index.html/app.js gemeinsam hochzaehlen.
-const CACHE = 'stundenplan-v26';
+const CACHE = 'stundenplan-v27';
 const HUELLE = [
   './',
   './index.html',
-  './styles.css?v=26',
-  './app.js?v=26',
-  './bereiche.mjs?v=26',
-  './daten.mjs?v=26',
-  './symbole.mjs?v=26',
-  './shared/konfiguration.mjs?v=26',
-  './shared/klausurplan.mjs?v=26',
-  './shared/krypto.mjs?v=26',
+  './styles.css?v=27',
+  './app.js?v=27',
+  './bereiche.mjs?v=27',
+  './daten.mjs?v=27',
+  './symbole.mjs?v=27',
+  './shared/konfiguration.mjs?v=27',
+  './shared/klausurplan.mjs?v=27',
+  './shared/krypto.mjs?v=27',
   './manifest.webmanifest',
   './icons/icon-180.png',
   './icons/icon-192.png',
@@ -61,18 +61,45 @@ const FAECHER = {
 
 const b64aus = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 
+/**
+ * Ein Wert aus der Datenbank der App - mit Zeitgrenze.
+ *
+ * Auf einem kalt gestarteten iPhone kann indexedDB.open() haengen bleiben
+ * (die App selbst hat deshalb laengst eine Zeitgrenze). Ohne Zeitgrenze hier
+ * wuerde die Mitteilung nie angezeigt - und iOS entzieht einer App, die auf
+ * Push-Nachrichten mehrfach nichts anzeigt, stillschweigend die Anmeldung.
+ * Danach kaeme GAR NICHTS mehr an, auch keine Erinnerung.
+ */
 function ausDatenbank(name) {
-  return new Promise((fertig) => {
-    const anfrage = indexedDB.open('stundenplan', 1);
-    anfrage.onerror = () => fertig(null);
-    anfrage.onsuccess = () => {
-      const verbindung = anfrage.result;
-      if (!verbindung.objectStoreNames.contains('werte')) return fertig(null);
-      const a = verbindung.transaction('werte', 'readonly').objectStore('werte').get(name);
-      a.onsuccess = () => fertig(a.result ?? null);
-      a.onerror = () => fertig(null);
-    };
+  const lesen = new Promise((fertig) => {
+    try {
+      const anfrage = indexedDB.open('stundenplan', 1);
+      anfrage.onerror = () => fertig(null);
+      anfrage.onblocked = () => fertig(null);
+      anfrage.onsuccess = () => {
+        const verbindung = anfrage.result;
+        const ende = (wert) => {
+          try {
+            verbindung.close();
+          } catch {
+            /* egal */
+          }
+          fertig(wert);
+        };
+        try {
+          if (!verbindung.objectStoreNames.contains('werte')) return ende(null);
+          const a = verbindung.transaction('werte', 'readonly').objectStore('werte').get(name);
+          a.onsuccess = () => ende(a.result ?? null);
+          a.onerror = () => ende(null);
+        } catch {
+          ende(null);
+        }
+      };
+    } catch {
+      fertig(null);
+    }
   });
+  return Promise.race([lesen, new Promise((fertig) => setTimeout(() => fertig(null), 2000))]);
 }
 
 /**
@@ -112,18 +139,22 @@ async function eigeneAufgaben(datum) {
   }
 }
 
-/** Nur die offenen Hausaufgaben fuer ein Datum (fuer die 15:40-Erinnerung). */
+/**
+ * Nur die offenen Hausaufgaben fuer ein Datum (fuer die 15:40-Erinnerung).
+ * null = die eigenen Daten waren gerade nicht lesbar. Das ist etwas anderes
+ * als "nichts offen" - sonst hiesse es faelschlich "alles erledigt".
+ */
 async function offeneAufgabenFuer(datum) {
   try {
     const namen = await speicherNamen();
     const schluesselB64 = await ausDatenbank(namen.schluessel);
     const paket = await ausDatenbank(namen.daten);
-    if (!schluesselB64 || !paket?.iv) return [];
+    if (!schluesselB64 || !paket?.iv) return null;
     const schluessel = await crypto.subtle.importKey('raw', b64aus(schluesselB64), 'AES-GCM', false, ['decrypt']);
     const klar = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64aus(paket.iv) }, schluessel, b64aus(paket.daten));
     return JSON.parse(new TextDecoder().decode(klar)).aufgabenVorschau?.[datum] ?? [];
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -139,34 +170,45 @@ self.addEventListener('push', (e) => {
 
   e.waitUntil(
     (async () => {
+      let titel = inhalt.titel;
       let koerper = inhalt.koerper;
 
-      // Die 15:40-Erinnerung kennt der Server nicht inhaltlich - er stoesst sie
-      // nur an, den Text bauen wir hier aus den lokalen Aufgaben.
-      if (inhalt.marke === 'aufgaben' && inhalt.datum) {
-        const offen = await offeneAufgabenFuer(inhalt.datum);
-        if (offen.length) {
-          inhalt.titel = offen.length === 1 ? 'Eine Hausaufgabe für morgen' : `${offen.length} Hausaufgaben für morgen`;
-          koerper = offen.slice(0, 4).join('\n');
-        } else {
-          inhalt.titel = 'Nichts mehr offen ✓';
-          koerper = 'Für morgen ist alles erledigt.';
+      // Das Anreichern mit eigenen Daten darf die Mitteilung nie verhindern:
+      // Geht dabei irgendetwas schief, wird der Text vom Server angezeigt.
+      try {
+        // Die 15:40-Erinnerung kennt der Server nicht inhaltlich - er stoesst sie
+        // nur an, den Text bauen wir hier aus den lokalen Aufgaben.
+        if (inhalt.marke === 'aufgaben' && inhalt.datum) {
+          const offen = await offeneAufgabenFuer(inhalt.datum);
+          if (offen === null) {
+            koerper = koerper || 'Schau kurz in die App, was für morgen ansteht.';
+          } else if (offen.length) {
+            titel = offen.length === 1 ? 'Eine Hausaufgabe für morgen' : `${offen.length} Hausaufgaben für morgen`;
+            koerper = offen.slice(0, 4).join('\n');
+          } else {
+            titel = 'Nichts mehr offen ✓';
+            koerper = 'Für morgen ist alles erledigt.';
+          }
         }
+
+        // Bei der Abend- und Morgenmeldung die eigenen Aufgaben anhaengen.
+        if (inhalt.datum && (inhalt.marke === 'abendblick' || inhalt.marke === 'morgen')) {
+          const eigene = await eigeneAufgaben(inhalt.datum);
+          if (eigene.length) {
+            koerper = `${koerper ? koerper + '\n' : ''}Offen: ${eigene.slice(0, 3).join(' · ')}`;
+          }
+        }
+      } catch {
+        /* dann eben ohne die eigenen Daten */
       }
 
-      // Bei der Abend- und Morgenmeldung die eigenen Aufgaben anhaengen.
-      if (inhalt.datum && (inhalt.marke === 'abendblick' || inhalt.marke === 'morgen')) {
-        const eigene = await eigeneAufgaben(inhalt.datum);
-        if (eigene.length) {
-          koerper = `${koerper ? koerper + '\n' : ''}Offen: ${eigene.slice(0, 3).join(' · ')}`;
-        }
-      }
-
-      await self.registration.showNotification(inhalt.titel, {
+      await self.registration.showNotification(titel, {
         body: koerper,
         icon: './icons/icon-192.png',
         badge: './icons/icon-192.png',
-        tag: inhalt.marke ?? 'stundenplan',
+        // "stapel" schickt der Server bei Erinnerungen mit (eine je Stunde),
+        // damit zwei Erinnerungen am selben Tag einander nicht ersetzen.
+        tag: inhalt.stapel ?? inhalt.marke ?? 'stundenplan',
         renotify: true,
         data: { datum: inhalt.datum ?? null },
       });
