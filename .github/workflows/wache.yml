@@ -1,0 +1,41 @@
+name: Wache
+
+# Wiederanlauf fuer den Taktgeber - das Einzige, was noch an GitHubs Zeitplan
+# haengt. Der Zeitplan ist unzuverlaessig und oft Stunden zu spaet; deshalb
+# erledigt die Wache nichts Zeitkritisches. Sie fragt nur: Laeuft ein
+# Taktgeber? Wenn nicht, startet sie ihn neu und stoesst einen vollstaendigen
+# Abgleich an. Laeuft er, ist nach zehn Sekunden Schluss.
+#
+# Hinweis: GitHub schaltet Workflows mit Zeitplan in oeffentlichen Repos nach
+# 60 Tagen ohne Repository-Aktivitaet ab. Das traefe nur diese Wache - der
+# Taktgeber und der Abruf haben keinen Zeitplan und laufen weiter. Ein Commit
+# auf master (jede App-Aktualisierung) setzt die Frist zurueck.
+
+on:
+  schedule:
+    # Zweimal je Stunde, neben den vollen Marken (dort verwirft GitHub am meisten).
+    - cron: '23,53 * * * *'
+  workflow_dispatch: # von Hand: "Lebt die Kette?"
+
+permissions:
+  actions: write # Taktgeber und Abruf anstossen
+  contents: read
+
+# Zwei Wachen gleichzeitig wuerden die Kette doppelt starten.
+concurrency:
+  group: stundenplan-wache
+  cancel-in-progress: false
+
+jobs:
+  wache:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Lebt die Kette?
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/takt.mjs wache

@@ -1,0 +1,95 @@
+name: Taktgeber
+
+# Ersetzt GitHubs Zeitplan als Ausloeser fuer den Stundenplan-Abruf.
+#
+# GitHub fuehrt "schedule" nur nach Moeglichkeit aus; bei diesem Repo kamen
+# von 156 geplanten Laeufen am Tag 5 bis 9 an, und die Stunden zu spaet. Ein
+# per workflow_dispatch gestarteter Lauf beginnt dagegen sofort, und seit
+# September 2022 darf ein Lauf das mit seinem eingebauten GITHUB_TOKEN tun.
+#
+# Dieser Workflow ist deshalb eine Kette: Ein Lauf taktet rund 55 Minuten
+# lang (alle fuenf Minuten ein Anstoss fuer sync.yml) und hat von Anfang an
+# einen Nachfolger in der Warteschlange, der uebernimmt, sobald er endet.
+# Nachts und am Wochenende schlaeft die Kette nur. Die ganze Logik steht in
+# scripts/takt.mjs.
+#
+# Bewusst OHNE schedule-Eintrag: GitHub schaltet Workflows mit Zeitplan in
+# oeffentlichen Repos nach 60 Tagen ohne Repository-Aktivitaet ab. Den
+# Wiederanlauf per Zeitplan uebernimmt wache.yml - wird der abgeschaltet,
+# laeuft die Kette trotzdem weiter.
+
+on:
+  workflow_dispatch: # Start durch den Vorgaenger, die Wache oder von Hand
+    inputs:
+      probe:
+        description: 'Nur zum Testen: Anzahl Generationen im Probebetrieb (alle 2 Minuten ein Lauf OHNE Abruf beim Schulserver, Wechsel nach 6 Minuten). 0 = Normalbetrieb.'
+        type: string
+        default: '0'
+  # Wer den Taktgeber aendert und ausliefert, reiht damit einen neuen Lauf als
+  # Nachfolger ein. Beim allerersten Einbau startet er sofort. Laeuft schon
+  # eine Kette, uebernimmt er erst, wenn der laufende Job endet (tagsueber bis
+  # 55, nachts bis 170 Minuten) - bis dahin taktet die alte Fassung weiter.
+  # Sofort umschalten: gh run cancel <ID des laufenden Taktgebers>.
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/takt.yml'
+      - 'scripts/takt.mjs'
+
+permissions:
+  actions: write # sync.yml und den eigenen Nachfolger anstossen (workflow_dispatch)
+  contents: read # Checkout und die Ferienliste vom data-Zweig
+
+jobs:
+  takt:
+    name: takt # scripts/takt.mjs erkennt den laufenden Taktgeber an diesem Namen
+    runs-on: ubuntu-latest
+    # Laengster geplanter Lauf: 170 Minuten (nachts). Danach ist etwas faul.
+    timeout-minutes: 195
+    # Hoechstens EIN Taktgeber gleichzeitig; ein weiterer wartet als Reserve.
+    # Kommt ein dritter dazu, ersetzt er den wartenden (GitHub-Standard) -
+    # zwei Ketten nebeneinander kann es deshalb nicht geben. Die Gruppe haengt
+    # am Job, nicht am Workflow: So kann der Job "staffel" desselben Laufs
+    # zusehen, wie der Nachfolger startet.
+    concurrency:
+      group: stundenplan-takt
+      cancel-in-progress: false
+    steps:
+      # Immer der aktuelle Stand von master - ein Lauf, der stundenlang als
+      # Reserve gewartet hat, soll nicht mit einem alten Skript takten.
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+
+      # Kein setup-node, kein npm ci: Das Skript braucht keine Pakete, und
+      # Node ist auf dem Runner vorinstalliert. Der Job startet in Sekunden.
+      - name: Takten
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PROBE: ${{ inputs.probe }}
+        run: node scripts/takt.mjs takt
+
+  # Laeuft nach dem Taktgeber - auch wenn der abgestuerzt ist oder abgebrochen
+  # wurde - und prueft, ob der Nachfolger wirklich uebernommen hat. Wenn nicht,
+  # startet er die Kette neu: nach einem regulaeren Ende bis zu fuenfmal,
+  # verteilt ueber gut eine Stunde (nach 75 s, dann nach weiteren 3, 5, 10 und
+  # 20 Minuten); nach Absturz oder Abbruch einmal nach vier Minuten. Im
+  # Normalfall ist der Job nach wenigen Sekunden fertig.
+  staffel:
+    name: staffel
+    needs: takt
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Uebergabe pruefen
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          # success, failure oder cancelled - nur nach success startet die
+          # Staffel zuegig und mehrfach neu, sonst vorsichtig (ein Neustart).
+          TAKT_ERGEBNIS: ${{ needs.takt.result }}
+        run: node scripts/takt.mjs staffel

@@ -38,7 +38,10 @@ export async function sendeAn(abo, inhalt) {
   let verschickt = 0;
   for (const anmeldung of liste) {
     try {
-      await webpush.sendNotification(anmeldung, JSON.stringify(inhalt));
+      // Dringlichkeit hoch = sofort zustellen; nach sechs Stunden ist die
+      // Meldung ueberholt. Zeitgrenze, damit ein stummer Push-Dienst den Lauf
+      // nicht aufhaelt.
+      await webpush.sendNotification(anmeldung, JSON.stringify(inhalt), { TTL: 6 * 3600, urgency: 'high', timeout: 10_000 });
       verschickt++;
     } catch (fehler) {
       const code = fehler.statusCode ?? 0;

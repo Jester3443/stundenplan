@@ -43,13 +43,40 @@ export class UntisRest {
     this.anmeldeart = this.geheim ? 'App-Schluessel' : 'Passwort';
   }
 
-  async anmelden() {
+  /**
+   * Anmelden - mit bis zu drei Versuchen bei Netzstoerungen.
+   *
+   * Die Anmeldung war der einzige Abruf ohne zweite Chance. Ein einzelnes
+   * "ECONNRESET" des Schulservers liess den ganzen Lauf scheitern (9 von 600
+   * Laeufen, am 06.11. drei hintereinander). Wiederholt wird NUR bei
+   * Verbindungsfehlern und Serverstoerungen - nicht bei falschen
+   * Zugangsdaten, damit ein falsches Passwort den Zugang nicht sperrt.
+   */
+  async anmelden(versuche = 3) {
+    for (let versuch = 1; ; versuch++) {
+      try {
+        return await this.einmalAnmelden();
+      } catch (fehler) {
+        const code = String(fehler.code ?? fehler.cause?.code ?? '');
+        const netzstoerung =
+          /^(ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|ERR_BAD_RESPONSE|UND_ERR_)/.test(code) ||
+          fehler.name === 'TimeoutError' ||
+          /fetch failed|HTTP 5\d\d/.test(String(fehler.message));
+        if (!netzstoerung || versuch >= versuche) throw fehler;
+        console.warn(`  Anmeldung misslungen (${code || 'Netzfehler'}) - neuer Versuch in ${versuch * 6}s.`);
+        await new Promise((w) => setTimeout(w, versuch * 6000));
+      }
+    }
+  }
+
+  async einmalAnmelden() {
     await this.client.login();
     this.session = this.client.sessionInformation;
     const schoolBase64 = Buffer.from(`_${this.schule}`).toString('base64');
     this.cookies = `JSESSIONID=${this.session.sessionId}; schoolname="${schoolBase64}"`;
 
     const antwort = await fetch(`https://${this.host}/WebUntis/api/token/new`, {
+      signal: AbortSignal.timeout(20_000),
       headers: { Cookie: this.cookies },
     });
     if (!antwort.ok) throw new Error(`Token konnte nicht geholt werden (HTTP ${antwort.status})`);

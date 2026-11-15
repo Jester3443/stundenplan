@@ -1,38 +1,37 @@
 name: Stundenplan abrufen
 
+# Holt den Plan, meldet Aenderungen, erinnert vor der Stunde, verschickt die
+# Tagesmeldungen und veroeffentlicht den verschluesselten Stand.
+#
+# Gestartet wird dieser Workflow nur noch per workflow_dispatch:
+#   - alle fuenf Minuten vom Taktgeber (.github/workflows/takt.yml),
+#     abwechselnd mit Abruf beim Schulserver (schnell/voll) und ohne (melden),
+#   - nach einem Stillstand von der Wache (.github/workflows/wache.yml),
+#   - oder von Hand.
+# Einen eigenen Zeitplan (schedule) hat er nicht mehr: GitHub lieferte davon
+# nur 5 bis 9 Laeufe am Tag, 4 bis 9 Stunden zu spaet. Ohne Zeitplan kann
+# GitHub diesen Workflow ausserdem nicht mehr wegen 60 Tagen Inaktivitaet
+# abschalten.
+
 on:
-  schedule:
-    # Schnell-Lauf alle 5 Minuten an Schultagen. GitHub rechnet in UTC:
-    # 4-16 UTC deckt 6-18 Uhr deutscher Zeit in Sommer UND Winter ab.
-    # Holt nur die laufende und die naechste Woche - dort passieren
-    # Vertretungen. Dadurch belastet der haeufigere Takt den Schulserver
-    # weniger als der bisherige 15-Minuten-Takt.
-    # Die Minuten liegen bewusst NEBEN dem vollen Fuenf-Minuten-Raster
-    # (2, 7, 12 ... statt 0, 5, 10 ...): Zur vollen Marke stehen bei GitHub
-    # weltweit die meisten Zeitplaene an, und genau dann verwirft der
-    # Scheduler am meisten. Beobachtet: ab Mitte September nur noch 6 statt
-    # 150 Laeufe am Tag. Verlaesslich wird es erst mit dem externen Anstoss
-    # (scripts/anstoss.gs) - der Zeitplan hier bleibt als Rueckfallebene.
-    - cron: '2-59/5 4-16 * * 1-5'
-    # Viermal taeglich der vollstaendige Plan (6 Wochen). Was weiter als zwei
-    # Wochen entfernt liegt, aendert sich nicht im Minutentakt.
-    - cron: '9 4,8,12,16 * * 1-5'
-    # Abendvorschau: 19 UTC = 21:00 Sommerzeit / 20:00 Winterzeit,
-    # sonntags bis donnerstags (fuer die Schultage Montag bis Freitag).
-    - cron: '3 19 * * 0-4'
-    # Morgenueberblick: 4:33 UTC = 6:33 Sommerzeit / 5:33 Winterzeit.
-    - cron: '33 4 * * 1-5'
-    # Hausaufgaben-Erinnerung am Vortag: 13:43 UTC = 15:43 Sommerzeit.
-    - cron: '43 13 * * 0-4'
-  workflow_dispatch: # Start von Hand oder durch den externen Anstoss
+  workflow_dispatch:
     inputs:
       aufgabe:
-        description: 'schnell = zwei Wochen, voll = sechs Wochen; morgen/abend/aufgaben = voller Lauf plus Tagesmeldung'
+        description: 'schnell = zwei Wochen holen, voll = sechs Wochen holen, melden = NICHTS holen (nur Erinnerung und Tagesmeldungen aus dem veroeffentlichten Plan); morgen/abend/aufgaben = voller Lauf und diese Tagesmeldung sofort (ohne Blick auf die Uhr)'
         type: choice
-        options: [schnell, voll, morgen, abend, aufgaben]
+        options: [schnell, voll, melden, morgen, abend, aufgaben]
         default: voll
+      probe_zeit:
+        description: 'Nur zum Testen: so tun, als waere es "JJJJ-MM-TT HH:MM" (deutsche Zeit). Dann wird nichts abgerufen, nichts verschickt, nichts vermerkt und nichts veroeffentlicht.'
+        type: string
+        default: ''
 
-# Zwei gleichzeitige Laeufe wuerden sich gegenseitig ueberschreiben.
+# Zwei gleichzeitige Laeufe wuerden sich gegenseitig ueberschreiben. Ein
+# wartender Lauf wird vom naechsten ersetzt (GitHub-Standard "queue: single")
+# - das ist in Ordnung, weil kein Lauf mehr eine besondere Aufgabe traegt:
+# Tagesmeldungen und Erinnerungen entscheidet jeder Lauf selbst anhand der
+# Uhrzeit. "queue: max" (bis zu 100 wartende Laeufe) ist bewusst NICHT
+# gesetzt: Nach einer Stoerung gaebe das einen Schwall beim Schulserver.
 concurrency:
   group: stundenplan-sync
   cancel-in-progress: false
@@ -43,62 +42,74 @@ permissions:
 jobs:
   abrufen:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Nur das letzte Netz. Jeder Schritt hat seine eigene Zeitgrenze, und die
+    # zaehlt als Fehlschlag - danach laufen Erinnerung, Tagesmeldungen und
+    # Veroeffentlichung trotzdem (if: !cancelled()). Greift dagegen dieses
+    # Job-Limit, gilt der Lauf als abgebrochen, und nichts davon laeuft mehr.
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
+        timeout-minutes: 1
 
       - uses: actions/setup-node@v4
+        timeout-minutes: 2
         with:
           node-version: 22
           cache: npm
 
-      - run: npm ci
+      # Der einzige Haenger, den es in diesem Repo je gab, sass hier und nicht
+      # beim Schulserver: Am 04.09. blieb "npm ci" sechzehnmal stehen, bis das
+      # Job-Limit den ganzen Lauf abbrach. Darum eine harte Grenze von 45
+      # Sekunden (normal sind 2 bis 3) und ein zweiter Versuch.
+      - name: Pakete installieren
+        timeout-minutes: 3
+        run: timeout -k 5 45 npm ci || timeout -k 5 90 npm ci
 
       # Der zuletzt veroeffentlichte Stand als Vergleichsbasis - bewusst per
       # git und nicht ueber raw.githubusercontent.com: Dessen Auslieferung
       # kann einige Minuten alt sein, und dann meldete der naechste Lauf
       # denselben Ausfall ein zweites Mal.
-      # Beim allerersten Lauf gibt es den Zweig noch nicht - darum nachsichtig.
+      # Scheitert dieser Schritt, endet der Lauf hier (kein Abruf, kein
+      # Versand, keine Veroeffentlichung): Ohne den Stand fehlten die Vermerke,
+      # was schon verschickt wurde - alles kaeme doppelt, und die
+      # Veroeffentlichung wuerde die Vermerke auf dem data-Zweig loeschen.
       - name: Zuletzt veroeffentlichten Stand holen
-        continue-on-error: true
+        timeout-minutes: 1
         uses: actions/checkout@v4
         with:
           ref: data
           path: basis-stand
           fetch-depth: 1
 
-      # Nur der Fuenf-Minuten-Takt laeuft verkuerzt. Alles andere - der
-      # stuendliche Lauf, die Tagesmeldungen und der Start von Hand - holt
-      # den vollstaendigen Plan.
       - name: Betriebsart bestimmen
         id: art
         env:
           # Ueber die Umgebung statt direkt in die Shell eingesetzt - so kann
           # der Wert die Befehlszeile nicht zerbrechen.
-          ZEITPLAN: ${{ github.event.schedule }}
           AUFGABE: ${{ inputs.aufgabe }}
+          PROBE_ZEIT: ${{ inputs.probe_zeit }}
         run: |
-          MELDUNG=keine
+          MELDUNG=''
           case "$AUFGABE" in
             schnell) MODUS=schnell ;;
-            voll)    MODUS=voll ;;
+            melden) MODUS=ohne ;;
             morgen|abend|aufgaben) MODUS=voll; MELDUNG="$AUFGABE" ;;
-            *)
-              # Kein Handstart: die Aufgabe ergibt sich aus dem Zeitplan.
-              case "$ZEITPLAN" in
-                "2-59/5 4-16 * * 1-5") MODUS=schnell ;;
-                "33 4 * * 1-5")        MODUS=voll; MELDUNG=morgen ;;
-                "3 19 * * 0-4")        MODUS=voll; MELDUNG=abend ;;
-                "43 13 * * 0-4")       MODUS=voll; MELDUNG=aufgaben ;;
-                *)                     MODUS=voll ;;
-              esac ;;
+            *) MODUS=voll ;;
           esac
+          # Ein Probe-Lauf prueft nur die Uhr - er fragt den Schulserver nie ab.
+          if [ -n "$PROBE_ZEIT" ]; then MODUS=ohne; fi
           echo "modus=$MODUS" >> "$GITHUB_OUTPUT"
           echo "meldung=$MELDUNG" >> "$GITHUB_OUTPUT"
-          echo "Betriebsart: $MODUS, Meldung: $MELDUNG"
+          echo "Betriebsart: $MODUS${MELDUNG:+, Tagesmeldung von Hand: $MELDUNG}${PROBE_ZEIT:+, PROBE}"
 
       - name: Plan holen, filtern und verschluesseln
+        if: ${{ steps.art.outputs.modus != 'ohne' }}
+        # Haengt der Schulserver, soll das nicht den ganzen Job kosten: Nach
+        # zwei Minuten (normal sind 5 bis 15 Sekunden) gilt der Schritt als
+        # gescheitert, und Erinnerung, Tagesmeldung und Veroeffentlichung
+        # laufen mit dem letzten Stand weiter.
+        timeout-minutes: 2
         env:
           MODUS: ${{ steps.art.outputs.modus }}
           UNTIS_SCHOOL: igs-osterholz-scharmbeck
@@ -110,14 +121,23 @@ jobs:
           APP_CODE_JASPER: ${{ secrets.APP_CODE }}
           APP_CODE_CATALINA: ${{ secrets.APP_CODE_CATALINA }}
           # Vergleichsbasis: zuerst der ausgecheckte data-Zweig, ersatzweise
-          # die oeffentliche Adresse (falls der Zweig noch nicht existiert).
+          # die oeffentliche Adresse.
           BASIS_DIR: basis-stand
           BASIS_URL: https://raw.githubusercontent.com/${{ github.repository }}
           # Oeffentliches Protokoll -> keine Inhalte ausgeben
           KNAPP: '1'
         run: npm run sync
 
+      # Laeuft auch nach einem gescheiterten Abruf: Gemeldet wird nur, was
+      # dieser Lauf wirklich frisch geschrieben hat (push.mjs ueberspringt
+      # Personen ohne frische Datei). Bricht der Abruf mitten in der
+      # Personenschleife ab, ist der Plan der ersten Person schon geschrieben
+      # und wird unten veroeffentlicht - ohne diesen Schritt ginge ihre
+      # Aenderungsmeldung fuer immer verloren.
+      # Nicht bei "melden" (nichts abgerufen) und nicht im Probebetrieb.
       - name: Bei Aenderungen benachrichtigen
+        if: ${{ !cancelled() && steps.art.outputs.modus != 'ohne' && inputs.probe_zeit == '' }}
+        timeout-minutes: 2
         env:
           VAPID_PUBLIC: ${{ secrets.VAPID_PUBLIC }}
           VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
@@ -126,13 +146,20 @@ jobs:
           PUSH_SUBSCRIPTION_CATALINA: ${{ secrets.PUSH_SUBSCRIPTION_CATALINA }}
           APP_CODE: ${{ secrets.APP_CODE }}
           APP_CODE_CATALINA: ${{ secrets.APP_CODE_CATALINA }}
+          BASIS_DIR: basis-stand
           KNAPP: '1'
         run: npm run push
 
       # Kurz vor einer Stunde, bei der noch eine Entschuldigung offen ist.
       # Liest die verschluesselte Sicherung der Person - der Server selbst
       # kennt die Fehlzeiten sonst nicht.
+      # Laeuft AUCH, wenn der Abruf bei WebUntis gescheitert ist oder gar
+      # nicht stattfand ("melden"): Die Erinnerung braucht WebUntis nicht, nur
+      # den zuletzt veroeffentlichten Plan (basis-stand). Frueher fiel sie mit
+      # jedem Aussetzer des Schulservers aus.
       - name: Erinnerung vor der Stunde
+        if: ${{ !cancelled() }}
+        timeout-minutes: 2
         env:
           VAPID_PUBLIC: ${{ secrets.VAPID_PUBLIC }}
           VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
@@ -142,12 +169,17 @@ jobs:
           APP_CODE: ${{ secrets.APP_CODE }}
           APP_CODE_CATALINA: ${{ secrets.APP_CODE_CATALINA }}
           BASIS_DIR: basis-stand
+          PROBE_ZEIT: ${{ inputs.probe_zeit }}
           KNAPP: '1'
         run: npm run erinnerungen
 
-      - name: Abendvorschau fuer morgen
-        # Laeuft nur, wenn die Aufgabe es verlangt - nicht alle fuenf Minuten.
-        if: steps.art.outputs.meldung == 'abend'
+      # Morgenueberblick (ab 6:30), Hausaufgaben-Erinnerung (ab 15:40) und
+      # Abendvorschau (ab 21:00). Der Schritt laeuft bei JEDEM Lauf und
+      # entscheidet selbst anhand der deutschen Uhrzeit, ob etwas an der
+      # Reihe ist; jede Meldung geht je Person und Tag nur einmal raus.
+      - name: Tagesmeldungen
+        if: ${{ !cancelled() }}
+        timeout-minutes: 2
         env:
           VAPID_PUBLIC: ${{ secrets.VAPID_PUBLIC }}
           VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
@@ -157,52 +189,45 @@ jobs:
           APP_CODE: ${{ secrets.APP_CODE }}
           APP_CODE_CATALINA: ${{ secrets.APP_CODE_CATALINA }}
           BASIS_DIR: basis-stand
+          # Beim Handstart mit aufgabe = morgen/abend/aufgaben: diese Meldung sofort.
+          ERZWINGEN: ${{ steps.art.outputs.meldung }}
+          PROBE_ZEIT: ${{ inputs.probe_zeit }}
           KNAPP: '1'
-        run: npm run abend
+        run: npm run meldungen
 
-      - name: Morgenueberblick fuer heute
-        if: steps.art.outputs.meldung == 'morgen'
-        env:
-          VAPID_PUBLIC: ${{ secrets.VAPID_PUBLIC }}
-          VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
-          VAPID_KONTAKT: https://stundenplan-jasper.web.app
-          PUSH_SUBSCRIPTION: ${{ secrets.PUSH_SUBSCRIPTION }}
-          PUSH_SUBSCRIPTION_CATALINA: ${{ secrets.PUSH_SUBSCRIPTION_CATALINA }}
-          APP_CODE: ${{ secrets.APP_CODE }}
-          APP_CODE_CATALINA: ${{ secrets.APP_CODE_CATALINA }}
-          BASIS_DIR: basis-stand
-          KNAPP: '1'
-        run: npm run morgen
-
-      - name: Hausaufgaben-Erinnerung fuer morgen
-        if: steps.art.outputs.meldung == 'aufgaben'
-        env:
-          VAPID_PUBLIC: ${{ secrets.VAPID_PUBLIC }}
-          VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
-          VAPID_KONTAKT: https://stundenplan-jasper.web.app
-          PUSH_SUBSCRIPTION: ${{ secrets.PUSH_SUBSCRIPTION }}
-          PUSH_SUBSCRIPTION_CATALINA: ${{ secrets.PUSH_SUBSCRIPTION_CATALINA }}
-          APP_CODE: ${{ secrets.APP_CODE }}
-          APP_CODE_CATALINA: ${{ secrets.APP_CODE_CATALINA }}
-          BASIS_DIR: basis-stand
-          KNAPP: '1'
-        run: npm run aufgaben
-
+      # Laeuft auch nach einem gescheiterten Abruf und bei "melden": Dann wird
+      # der bisherige Plan unveraendert wieder veroeffentlicht - zusammen mit
+      # den Vermerken, was dieser Lauf verschickt hat. Ohne das ginge der
+      # Vermerk verloren, und der naechste Lauf schickte dieselbe Erinnerung
+      # noch einmal.
+      # NICHT im Probebetrieb: Ein Probe-Lauf veroeffentlicht nichts.
       - name: Verschluesselte Daten veroeffentlichen
+        if: ${{ !cancelled() && inputs.probe_zeit == '' }}
+        timeout-minutes: 2
         run: |
-          if ! ls public/data/plan*.enc.json >/dev/null 2>&1; then
-            echo "Keine verschluesselten Daten (Zugangscode-Secret fehlt?) - Abbruch."
+          mkdir out
+          # 1. Der bisherige Stand: Plaene aller Personen, Vermerke, Ferienliste.
+          #    Wurde eine Person diesmal uebersprungen (fehlendes Secret) oder
+          #    ist der Abruf gescheitert, bleibt ihre Datei so erhalten.
+          cp basis-stand/*.json out/ 2>/dev/null || true
+          # 2. Darueber alles, was dieser Lauf neu erzeugt hat.
+          cp public/data/plan*.enc.json out/ 2>/dev/null || true
+          # Vermerke, was schon verschickt wurde (nur Datumsangaben bzw.
+          # verschluesselte Kennungen), und die freien Zeitraeume fuer den
+          # Taktgeber (nur von/bis).
+          cp public/data/meldungen.json public/data/erinnerungen.json public/data/ferien.json out/ 2>/dev/null || true
+          # Ohne einen einzigen Plan nichts veroeffentlichen - der force-push
+          # wuerde sonst die Plaene auf dem data-Zweig loeschen.
+          if ! ls out/plan*.enc.json >/dev/null 2>&1; then
+            echo "Kein verschluesselter Plan vorhanden (weder neu noch vom data-Zweig) - nichts veroeffentlicht."
             exit 1
           fi
-          mkdir out
-          # Erst den bisherigen Stand uebernehmen: Wurde eine Person diesmal
-          # uebersprungen (fehlendes Secret), bliebe ihre Datei sonst beim
-          # force-push auf der Strecke und ihre App stuende ohne Plan da.
-          cp basis-stand/*.enc.json out/ 2>/dev/null || true
-          cp public/data/plan*.enc.json out/
-          # Vermerke, was schon verschickt wurde (nur Datumsangaben bzw. Hashes).
-          cp basis-stand/meldungen.json basis-stand/erinnerungen.json out/ 2>/dev/null || true
-          cp public/data/meldungen.json public/data/erinnerungen.json out/ 2>/dev/null || true
+          # Hat sich nichts geaendert (ein Lauf ohne Abruf, der nichts zu
+          # verschicken hatte), bleibt der data-Zweig, wie er ist.
+          if diff -rq --exclude=.git basis-stand out >/dev/null 2>&1; then
+            echo "Nichts Neues - der veroeffentlichte Stand bleibt unveraendert."
+            exit 0
+          fi
           cd out
           git init -q -b data
           git config user.name "stundenplan-bot"

@@ -279,5 +279,24 @@ console.log('\n--- Termintexte im Schnell-Lauf ---');
     findeAenderungen({ wochen: nachSchnell }, { wochen: nachVoll }).map((a) => a.text).join(' | '));
 }
 
+console.log('\n--- Neu freigegebene Woche ---');
+
+// 23. Montags gibt WebUntis eine weitere Woche frei. Sie stand vorher schon
+//     leer im Plan. Ihre Stunden sind keine Aenderung - frueher loeste das
+//     jeden Montag die Sammelmeldung "Der Plan hat sich stark geaendert" aus.
+{
+  const zweite = stunde({ von: '09:50', bis: '11:15', block: '3./4.', kurs: 'ma2', fachName: 'Mathematik' });
+  const alt = plan(woche(M(0), [tag(T(1), [stunde()])]), woche(M(3), [tag(T(21), [])]));
+  const gefuellt = plan(woche(M(0), [tag(T(1), [stunde()])]), woche(M(3), [tag(T(21), [stunde(), zweite])]));
+  pruefe('Bisher leere Woche wird gefuellt: keine Meldung',
+    findeAenderungen(alt, gefuellt).length === 0, findeAenderungen(alt, gefuellt).map((x) => x.text).join(' | '));
+
+  // Gegenprobe: In einer Woche, die schon Unterricht hatte, wird eine
+  // zusaetzliche Stunde weiterhin gemeldet.
+  const mehr = plan(woche(M(0), [tag(T(1), [stunde(), zweite])]), woche(M(3), [tag(T(21), [])]));
+  pruefe('Zusaetzliche Stunde in einer bekannten Woche wird weiter gemeldet',
+    arten(findeAenderungen(alt, mehr)) === 'neu', arten(findeAenderungen(alt, mehr)));
+}
+
 console.log(fehler === 0 ? '\nAlle Pruefungen bestanden.' : `\n${fehler} Pruefung(en) fehlgeschlagen.`);
 process.exit(fehler === 0 ? 0 : 1);

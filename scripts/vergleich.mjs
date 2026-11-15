@@ -46,10 +46,13 @@ export function findeAenderungen(alt, neu) {
   if (!alteGruppen.size) return []; // erster Lauf: nichts zu melden
   const neueGruppen = nachSchluessel(neu);
 
-  // Welche Wochen standen im alten Stand ueberhaupt drin? Nur dort kann
+  // Welche Wochen standen im alten Stand MIT UNTERRICHT drin? Nur dort kann
   // etwas "neu" sein. Sonst meldete jeder Montag, an dem das Zeitfenster
   // eine Woche weiterrueckt, den kompletten Inhalt dieser Woche als neu.
-  const alteWochen = new Set((alt?.wochen ?? []).map((w) => w.montag));
+  // Eine Woche, die bisher nur leer im Plan stand (WebUntis hatte sie noch
+  // nicht freigegeben), zaehlt deshalb nicht als "war schon dabei" - genau
+  // das loeste jeden Montag den Fehlalarm "Plan stark geaendert" aus.
+  const alteWochen = new Set((alt?.wochen ?? []).filter((w) => stundenZahl(w) > 0).map((w) => w.montag));
 
   const aenderungen = [];
   const uebrigAlt = new Map(); // Schluessel -> alte Eintraege ohne Gegenstueck

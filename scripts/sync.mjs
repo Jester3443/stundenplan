@@ -174,6 +174,9 @@ await untis.abmelden();
 // ------------------------------------------------- je Person auswerten
 
 let fehlgeschlagen = 0;
+/** Ferien, Feiertage und Schuljahr fuer den Taktgeber (siehe unten). */
+let ferienFuerTakt = [];
+let schuljahrFuerTakt = null;
 
 for (const [kennung, person] of Object.entries(BENUTZER)) {
   setzeBenutzer(kennung);
@@ -295,6 +298,8 @@ for (const [kennung, person] of Object.entries(BENUTZER)) {
   // Fehlgeschlagene Zusatzabrufe duerfen den veroeffentlichten Stand nicht
   // aermer machen als er war.
   const ferienListe = ferien.length ? ferien : (alt?.ferien ?? []);
+  if (ferienListe.length) ferienFuerTakt = ferienListe;
+  schuljahrFuerTakt = schuljahr ?? alt?.schuljahr ?? schuljahrFuerTakt;
   if (SCHNELL) termintexteUebernehmen(alt?.wochen, wochen);
   if (!hausaufgabenGeholt) aufgabenUebernehmen(alt?.wochen, wochen);
   const alleWochen = wochenZusammenfuehren(alt?.wochen, wochen, {
@@ -344,6 +349,33 @@ for (const [kennung, person] of Object.entries(BENUTZER)) {
 }
 
 await rm('public/data/plan.json', { force: true }); // Klartext darf nie ins Netz
+
+// Freie Zeitraeume unverschluesselt fuer den Taktgeber (scripts/takt.mjs):
+// An freien Tagen fragt er den Schulserver nur noch alle halbe Stunde ab.
+// Nur von/bis - das sind oeffentlich bekannte Termine, keine Personendaten.
+// Die Sommerferien stehen NICHT in der Ferienliste von WebUntis (sie liegen
+// zwischen zwei Schuljahren). Darum gilt zusaetzlich alles vor dem ersten und
+// nach dem letzten Tag des Schuljahres als frei - sonst liefe der Taktgeber
+// sechs Wochen lang im vollen Raster fuer nichts.
+{
+  const datum = /^\d{4}-\d{2}-\d{2}/;
+  const versetzt = (tag, n) => {
+    const d = new Date(`${tag.slice(0, 10)}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+  };
+  const frei = ferienFuerTakt
+    .filter((f) => datum.test(f?.von ?? '') && datum.test(f?.bis ?? ''))
+    .map((f) => ({ von: f.von.slice(0, 10), bis: f.bis.slice(0, 10) }));
+  const sj = schuljahrFuerTakt;
+  if (datum.test(sj?.von ?? '') && datum.test(sj?.bis ?? '') && sj.von < sj.bis) {
+    frei.push({ von: '2000-01-01', bis: versetzt(sj.von, -1) }, { von: versetzt(sj.bis, 1), bis: '2099-12-31' });
+  }
+  if (frei.length) {
+    await mkdir('public/data', { recursive: true });
+    await writeFile('public/data/ferien.json', JSON.stringify(frei), 'utf8');
+  }
+}
 
 const erledigt = Object.keys(BENUTZER).length - fehlgeschlagen;
 if (fehlgeschlagen) {

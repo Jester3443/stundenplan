@@ -7,24 +7,30 @@
 // entschuldigt, gleich ist Biologie." Der Schluessel wird aus dem Zugangscode
 // abgeleitet, genau wie in der App. Inhalte NIE ins Protokoll schreiben -
 // das Repo ist oeffentlich.
-import { readFile } from 'node:fs/promises';
 import { schluesselAus, ablageId, entschluesselnMitSchluessel } from './krypto-node.mjs';
+import { paketFuer, codeFuer } from './plan-quelle.mjs';
 
 const FIRESTORE =
   'https://firestore.googleapis.com/v1/projects/stundenplan-jasper/databases/(default)/documents';
-
-const codeFuer = (kennung) =>
-  (process.env[`APP_CODE_${kennung.toUpperCase()}`] ?? (kennung === 'jasper' ? process.env.APP_CODE : '') ?? '').trim();
 
 /** Die eigenen Daten einer Person - oder null, wenn es keine Sicherung gibt. */
 export async function eigeneDatenFuer(kennung) {
   const code = codeFuer(kennung);
   if (!code) return null;
   try {
-    const plan = JSON.parse(await readFile(`public/data/plan-${kennung}.enc.json`, 'utf8'));
+    // Salz und Rundenzahl aus dem verschluesselten Plan - frisch aus diesem
+    // Lauf oder, wenn der Abruf bei WebUntis gescheitert ist, vom data-Zweig.
+    const plan = await paketFuer(kennung);
+    if (!plan) return null;
     const schluessel = schluesselAus(code, plan.salz, plan.runden);
-    const antwort = await fetch(`${FIRESTORE}/sicherung/${ablageId(schluessel, '')}`, { cache: 'no-store' });
-    if (!antwort.ok) return null;
+    const antwort = await fetch(`${FIRESTORE}/sicherung/${ablageId(schluessel, '')}`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!antwort.ok) {
+      console.error(`${kennung}: Sicherung nicht abrufbar (HTTP ${antwort.status}).`);
+      return null;
+    }
     const dok = await antwort.json();
     return entschluesselnMitSchluessel(
       { iv: dok.fields.iv.stringValue, daten: dok.fields.daten.stringValue },
